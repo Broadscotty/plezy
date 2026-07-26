@@ -36,7 +36,7 @@
     <uses-feature android:name="android.hardware.type.automotive" android:required="false" />
 
     <application
-        android:label="Plezy Dev"
+        android:label="Plezy Cleo"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:banner="@drawable/tv_banner"
@@ -82,7 +82,7 @@
         <!-- FileProvider for sharing downloaded files with external players -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.edde746.plezy.dev.fileprovider"
+            android:authorities="com.edde746.plezy.cleo.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
@@ -91,7 +91,7 @@
         </provider>
         <provider
             android:name=".watchnext.SystemShelfArtworkProvider"
-            android:authorities="com.edde746.plezy.dev.systemshelf.artwork"
+            android:authorities="com.edde746.plezy.cleo.systemshelf.artwork"
             android:exported="true"
             android:grantUriPermissions="true" />
         <receiver

@@ -1,0 +1,35 @@
+name: Build Debug APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-debug-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: 'stable'
+          flutter-version: '3.44.0'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get --no-example
+
+      - name: Build debug APK
+        run: flutter build apk --debug --target-platform android-arm64
+
+      - name: Upload APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: plezy-debug-arm64
+          path: build/app/outputs/flutter-apk/app-debug.apk
