@@ -447,7 +447,6 @@ class _DownloadedMusicContentState extends State<_DownloadedMusicContent> {
                       isOffline: true,
                       fullBleedImage: fullCardLayout && position.isGrid,
                       onNavigateLeft: position.isFirstColumn ? _navigateToSidebar : null,
-                      onTapOverride: () => navigateToAlbum(context, album),
                     );
                   },
                 ),
