@@ -308,6 +308,23 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
   // Opening / advancing
   // ---------------------------------------------------------------------
 
+  /// Resolve where a fresh track open should start: locally tracked offline
+  /// progress (if the source is offline) → server view offset. Mirrors the
+  /// video player screen's `_resolveOpenResumePosition` so audiobook/podcast
+  /// tracks (played through this music engine) resume instead of always
+  /// restarting from 0.
+  Future<Duration?> _resolveOpenResumePosition({required MediaItem track, required bool isOffline}) async {
+    if (isOffline) {
+      final localOffset = await _offlineWatchService?.getLocalViewOffset(track.globalKey);
+      if (localOffset != null && localOffset > 0) {
+        appLogger.d('Resuming offline track from local progress: ${localOffset}ms');
+        return Duration(milliseconds: localOffset);
+      }
+    }
+    final viewOffsetMs = track.viewOffsetMs;
+    return viewOffsetMs != null && viewOffsetMs > 0 ? Duration(milliseconds: viewOffsetMs) : null;
+  }
+
   /// Resolve and open the queue's current track. All failure handling funnels
   /// through [_handlePlaybackFailure].
   Future<void> _openCurrent(int generation, {bool play = true}) async {
@@ -360,8 +377,11 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
       }
       if (generation != _generation || _player != player) return;
 
+      final resumePosition = await _resolveOpenResumePosition(track: track, isOffline: source.isOffline);
+      if (generation != _generation || _player != player) return;
+
       try {
-        await player.open(Media(source.url, headers: source.headers), play: play);
+        await player.open(Media(source.url, headers: source.headers, start: resumePosition), play: play);
       } catch (e, st) {
         appLogger.w('Music open failed for ${track.id}', error: e, stackTrace: st);
         if (generation == _generation) _handlePlaybackFailure(e);
