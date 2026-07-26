@@ -381,12 +381,16 @@ android {
 
   buildTypes {
     release {
-      // Only use release signing if key.properties exists (not in CI/CD)
+      // Use release signing if key.properties exists; otherwise fall back
+      // to the debug signingConfig explicitly. Leaving signingConfig unset
+      // does NOT default to debug signing -- it produces an unsigned APK,
+      // which Android refuses to install.
       val keystorePropertiesFile = rootProject.file("key.properties")
-      if (keystorePropertiesFile.exists()) {
-        signingConfig = signingConfigs.getByName("release")
+      signingConfig = if (keystorePropertiesFile.exists()) {
+        signingConfigs.getByName("release")
+      } else {
+        signingConfigs.getByName("debug")
       }
-      // If key.properties doesn't exist, it will use debug signing for CI builds
       ndk {
         debugSymbolLevel = "FULL"
       }

@@ -101,13 +101,17 @@ jobs:
 
       - name: Configure Android signing
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
-          cat > android/key.properties << EOF
-          storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
-          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
-          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
-          storeFile=upload-keystore.jks
-          EOF
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+            cat > android/key.properties <<-EOF
+          	storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
+          	keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          	keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          	storeFile=upload-keystore.jks
+          	EOF
+          else
+            echo "No ANDROID_KEYSTORE_BASE64 secret — falling back to debug signing (Gradle handles this when key.properties is absent)."
+          fi
 
       - name: Build APKs
         run: flutter build apk --release --split-per-abi --dart-define=ENABLE_UPDATE_CHECK=true ${{ env.SENTRY_DART_DEFINE }} ${{ env.GIT_COMMIT_DART_DEFINE }} ${{ env.SENTRY_ENV_DART_DEFINE }} --dart-define=SENTRY_DIST=github-android-apk ${{ env.DONATIONS_DART_DEFINE }} --obfuscate --split-debug-info=debug-info/android-apk --extra-gen-snapshot-options=--save-obfuscation-map=debug-info/android-apk/obfuscation.map.json
