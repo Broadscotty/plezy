@@ -349,6 +349,23 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
       }
       if (generation != _generation || _player != player) return;
       _currentSource = source;
+      // Resolve resume position: local offline progress first, then server viewOffset
+      Duration? resumePos;
+      if (source.isOffline && _offlineWatchService != null) {
+        try {
+          final localOffset = await _offlineWatchService!.getLocalViewOffset(track.globalKey);
+          if (localOffset != null && localOffset > 0) {
+            resumePos = Duration(milliseconds: localOffset);
+            appLogger.d('Resuming audio from local progress: ${localOffset}ms');
+          }
+        } catch (e) {
+          appLogger.d('Failed to read local view offset for ${track.id}', error: e);
+        }
+      }
+      if (resumePos == null && track.viewOffsetMs != null && track.viewOffsetMs! > 0) {
+        resumePos = Duration(milliseconds: track.viewOffsetMs!);
+      }
+
 
       // Claim audio focus before audio starts so other media apps pause (mpv
       // has no built-in focus handling; harmless no-op off Android). Result is
@@ -361,7 +378,7 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
       if (generation != _generation || _player != player) return;
 
       try {
-        await player.open(Media(source.url, headers: source.headers), play: play);
+        await player.open(Media(source.url, headers: source.headers, start: resumePos), play: play);
       } catch (e, st) {
         appLogger.w('Music open failed for ${track.id}', error: e, stackTrace: st);
         if (generation == _generation) _handlePlaybackFailure(e);

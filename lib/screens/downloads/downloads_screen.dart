@@ -16,13 +16,11 @@ import '../../widgets/app_icon.dart';
 import '../../widgets/background_download_warning_banner.dart';
 import '../../widgets/focusable_tab_chip.dart';
 import '../../widgets/music/mini_player.dart';
-import '../../widgets/music/track_row.dart';
 import '../../services/settings_service.dart';
 import '../../widgets/settings_builder.dart';
 import '../../utils/global_key_utils.dart';
 import '../../mixins/tab_navigation_mixin.dart';
 import '../../mixins/refreshable.dart';
-import '../../utils/media_image_helper.dart';
 import '../../utils/platform_detector.dart';
 import '../../widgets/desktop_app_bar.dart';
 import '../../widgets/focusable_media_card.dart';
@@ -366,29 +364,9 @@ class _DownloadsGridContentState extends State<_DownloadsGridContent> {
   }
 }
 
-/// A row of the downloaded-music list: an album header ([album] non-null) or
-/// a track at [trackIndex] within [albumTracks].
-class _MusicListEntry {
-  final MediaItem? album;
-  final List<MediaItem> albumTracks;
-  final int trackIndex;
-  final bool isFirst;
-  final bool isLast;
-
-  const _MusicListEntry.header(MediaItem this.album)
-    : albumTracks = const [],
-      trackIndex = -1,
-      isFirst = false,
-      isLast = false;
-
-  const _MusicListEntry.track(this.albumTracks, this.trackIndex, {required this.isFirst, required this.isLast})
-    : album = null;
-}
-
-/// Music tab: downloaded tracks grouped under their album (square cover +
-/// artist header, [TrackRow] entries). Tapping a track plays the album's
-/// downloaded tracks in disc/track order — fully offline through the shared
-/// music playback path.
+/// Music tab: downloaded albums shown in the same grid layout as the music
+/// library. Tapping an album navigates to [AlbumDetailScreen] — same path
+/// the library uses.
 class _DownloadedMusicContent extends StatefulWidget {
   final bool suppressAutoFocus;
   final VoidCallback? onBack;
@@ -420,102 +398,17 @@ class _DownloadedMusicContentState extends State<_DownloadedMusicContent> {
     }
   }
 
-  Future<void> _playAlbumFrom(List<MediaItem> albumTracks, MediaItem track) async {
-    final album = track.parentId;
-    await playTracks(
-      context,
-      tracks: albumTracks,
-      startTrack: track,
-      playContext: MusicPlayContext(id: album, title: track.albumTitle ?? '', kind: MusicPlayContextKind.album),
-    );
-  }
-
-  Widget _buildAlbumHeader(BuildContext context, DownloadProvider provider, MediaItem album) {
-    final tk = tokens(context);
-    final textTheme = Theme.of(context).textTheme;
-    final artist = album.albumArtistTitle;
-    final serverId = album.serverId;
-    final localArt = serverId == null ? null : provider.getArtworkLocalPath(ServerId(serverId), album.thumbPath);
-    final ImageProvider? localCoverImage;
-    if (localArt == null) {
-      localCoverImage = null;
-    } else {
-      final dpr = MediaImageHelper.effectiveDevicePixelRatio(context);
-      final (memWidth, memHeight) = MediaImageHelper.getMemCacheDimensions(
-        displayWidth: (48 * dpr).round(),
-        displayHeight: (48 * dpr).round(),
-        imageType: ImageType.square,
-      );
-      localCoverImage = MediaImageHelper.boundedDecode(
-        FileImage(File(localArt)),
-        memWidth: memWidth,
-        memHeight: memHeight,
-      );
-    }
-    Widget fallbackCover() => Container(
-      width: 48,
-      height: 48,
-      color: tk.surface,
-      child: AppIcon(Symbols.album_rounded, fill: 1, size: 24, color: tk.textMuted),
-    );
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(tk.radiusSm),
-            child: localCoverImage != null
-                ? Image(
-                    image: localCoverImage,
-                    width: 48,
-                    height: 48,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => fallbackCover(),
-                  )
-                : fallbackCover(),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: .start,
-              children: [
-                Text(album.displayTitle, style: textTheme.titleSmall, maxLines: 1, overflow: .ellipsis),
-                if (artist != null && artist.isNotEmpty)
-                  Text(
-                    artist,
-                    style: textTheme.bodySmall?.copyWith(color: tk.textMuted),
-                    maxLines: 1,
-                    overflow: .ellipsis,
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  List<_MusicListEntry> _rowModels(DownloadProvider provider) {
-    final rows = <_MusicListEntry>[];
-    for (final album in provider.downloadedAlbums) {
-      final tracks = provider.getDownloadedTracksForAlbum(album.id);
-      if (tracks.isEmpty) continue;
-      rows.add(_MusicListEntry.header(album));
-      for (var i = 0; i < tracks.length; i++) {
-        rows.add(_MusicListEntry.track(tracks, i, isFirst: i == 0, isLast: i == tracks.length - 1));
-      }
-    }
-    return rows;
+  void _navigateToSidebar() {
+    MainScreenFocusScope.focusSidebarOf(context);
   }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<DownloadProvider>(
       builder: (context, downloadProvider, _) {
-        final rows = _rowModels(downloadProvider);
+        final albums = downloadProvider.downloadedAlbums;
 
-        if (rows.isEmpty) {
+        if (albums.isEmpty) {
           return EmptyStateWidget(
             message: t.downloads.noDownloads,
             subtitle: t.downloads.noDownloadsDescription,
@@ -524,34 +417,41 @@ class _DownloadedMusicContentState extends State<_DownloadedMusicContent> {
           );
         }
 
-        // Keep the last rows reachable above the floating mini-player.
-        final bottomInset = context.watch<MiniPlayerInsetController?>()?.overlayHeight ?? 0;
+        // Extra top padding for focus decoration (scale + border extends beyond item bounds)
+        const effectivePadding = EdgeInsets.only(left: 8, right: 8, top: 8);
 
-        return ListView.builder(
-          padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + bottomInset),
-          itemCount: rows.length,
-          itemBuilder: (context, index) {
-            final row = rows[index];
-            final album = row.album;
-            if (album != null) {
-              return _buildAlbumHeader(context, downloadProvider, album);
-            }
-            final item = row.albumTracks[row.trackIndex];
-            // Row 0 is always the first album's header, so the first track
-            // row sits at index 1.
-            final isFirstTrackRow = index == 1;
-            return Padding(
-              padding: EdgeInsets.only(top: row.isFirst ? 0 : tokens(context).groupGap),
-              child: TrackRow(
-                key: ValueKey(item.globalKey),
-                item: item,
-                isFirst: row.isFirst,
-                isLast: row.isLast,
-                showArtist: true,
-                focusNode: isFirstTrackRow ? _firstItemFocusNode : null,
-                onBack: widget.onBack,
-                onTap: () => _playAlbumFrom(row.albumTracks, item),
-              ),
+        return SettingsBuilder(
+          prefs: const [SettingsService.viewMode, SettingsService.libraryDensity, SettingsService.tvFullCardLayout],
+          builder: (context) {
+            final settings = SettingsService.instance;
+            final viewMode = settings.read(SettingsService.viewMode);
+            final density = settings.read(SettingsService.libraryDensity);
+            final fullCardLayout = PlatformDetector.isTV() && settings.read(SettingsService.tvFullCardLayout);
+
+            return CustomScrollView(
+              clipBehavior: Clip.none,
+              slivers: [
+                MediaCardSliverLayout(
+                  viewMode: viewMode,
+                  itemCount: albums.length,
+                  density: density,
+                  padding: effectivePadding,
+                  fullBleedImage: fullCardLayout,
+                  itemBuilder: (context, position) {
+                    final album = albums[position.index];
+                    return FocusableMediaCard(
+                      item: album,
+                      focusNode: position.index == 0 ? _firstItemFocusNode : null,
+                      disableScale: position.disableScale,
+                      onBack: widget.onBack,
+                      isOffline: true,
+                      fullBleedImage: fullCardLayout && position.isGrid,
+                      onNavigateLeft: position.isFirstColumn ? _navigateToSidebar : null,
+                      onTapOverride: () => navigateToAlbum(context, album),
+                    );
+                  },
+                ),
+              ],
             );
           },
         );

@@ -36,7 +36,7 @@
     <uses-feature android:name="android.hardware.type.automotive" android:required="false" />
 
     <application
-        android:label="Plezy"
+        android:label="Plezy (SL)"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:banner="@drawable/tv_banner"
