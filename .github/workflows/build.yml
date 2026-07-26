@@ -103,12 +103,12 @@ jobs:
         run: |
           if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
             echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
-            cat > android/key.properties << EOF
-            storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
-            keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
-            keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
-            storeFile=upload-keystore.jks
-            EOF
+            cat > android/key.properties <<-EOF
+          	storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
+          	keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          	keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          	storeFile=upload-keystore.jks
+          	EOF
           else
             echo "No ANDROID_KEYSTORE_BASE64 secret — falling back to debug signing (Gradle handles this when key.properties is absent)."
           fi
