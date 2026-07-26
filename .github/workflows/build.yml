@@ -150,6 +150,48 @@ jobs:
             plezy-android-armeabi-v7a.tar.gz
             plezy-android-x86_64.tar.gz
 
+  release-sideload-apk:
+    needs: build-android
+    if: ${{ always() && needs.build-android.result == 'success' && inputs.build_android }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: pubspec.yaml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Download Android artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: android-apk
+          path: artifacts/android-apk
+
+      - name: Extract each arch's APK to a distinct filename
+        run: |
+          mkdir -p release-assets
+          for arch in arm64-v8a armeabi-v7a x86_64; do
+            tar -xzf "artifacts/android-apk/plezy-android-${arch}.tar.gz" -O plezy.apk > "release-assets/plezy-${arch}.apk"
+          done
+          ls -la release-assets
+
+      - name: Publish sideload release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete sideload-latest --yes --cleanup-tag --repo "${{ github.repository }}" || true
+          gh release create sideload-latest release-assets/*.apk \
+            --repo "${{ github.repository }}" \
+            --title "Sideload build (auto, arm64-v8a is what you want on a phone)" \
+            --notes "Automated sideload APK build from commit ${{ github.sha }}. Debug-signed, applicationId com.edde746.plezy.sideload. Download plezy-arm64-v8a.apk directly on your phone." \
+            --latest
+
+      - name: Print direct download URL
+        run: |
+          echo "Direct APK URL: https://github.com/${{ github.repository }}/releases/download/sideload-latest/plezy-arm64-v8a.apk"
+
   build-ios:
     needs: validate-trusted-ref
     if: ${{ inputs.build_ios }}
