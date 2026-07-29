@@ -205,6 +205,65 @@ sealed class MediaItem with _$MediaItem {
         backendFolderKey: backendFolderKey,
         raw: raw,
       ),
+      MediaBackend.debrid => DebridMediaItem(
+        id: id,
+        kind: kind,
+        guid: guid,
+        title: title,
+        titleSort: titleSort,
+        summary: summary,
+        tagline: tagline,
+        originalTitle: originalTitle,
+        studio: studio,
+        year: year,
+        originallyAvailableAt: originallyAvailableAt,
+        contentRating: contentRating,
+        parentId: parentId,
+        parentTitle: parentTitle,
+        parentThumbPath: parentThumbPath,
+        parentIndex: parentIndex,
+        index: index,
+        grandparentId: grandparentId,
+        grandparentTitle: grandparentTitle,
+        grandparentThumbPath: grandparentThumbPath,
+        grandparentArtPath: grandparentArtPath,
+        grandparentBackdropPaths: grandparentBackdropPaths,
+        thumbPath: thumbPath,
+        artPath: artPath,
+        backdropPaths: backdropPaths,
+        clearLogoPath: clearLogoPath,
+        backgroundSquarePath: backgroundSquarePath,
+        durationMs: durationMs,
+        viewOffsetMs: viewOffsetMs,
+        viewCount: viewCount,
+        lastViewedAt: lastViewedAt,
+        leafCount: leafCount,
+        viewedLeafCount: viewedLeafCount,
+        childCount: childCount,
+        addedAt: addedAt,
+        updatedAt: updatedAt,
+        rating: rating,
+        userRating: userRating,
+        isFavorite: isFavorite,
+        genres: genres,
+        directors: directors,
+        writers: writers,
+        producers: producers,
+        countries: countries,
+        collections: collections,
+        labels: labels,
+        styles: styles,
+        moods: moods,
+        roles: roles,
+        mediaVersions: mediaVersions,
+        libraryId: libraryId,
+        libraryTitle: libraryTitle,
+        audioLanguage: audioLanguage,
+        serverId: serverId,
+        serverName: serverName,
+        backendFolderKey: backendFolderKey,
+        raw: raw,
+      ),
     };
   }
 
@@ -357,9 +416,81 @@ sealed class MediaItem with _$MediaItem {
     @JsonKey(fromJson: _mediaItemRawFromJson) Map<String, Object?>? raw,
   }) = JellyfinMediaItem;
 
+  /// Backend-tagged concrete subclass for items sourced from a Stremio addon
+  /// resolved through Real-Debrid. Shares Jellyfin's field shape since it
+  /// covers everything this backend needs; addon-specific extras (addon URL,
+  /// catalog/meta/stream ids, cached debrid link) live in [raw].
+  @FreezedUnionValue('debrid')
+  @JsonSerializable(includeIfNull: false, explicitToJson: true)
+  const factory MediaItem.debrid({
+    @JsonKey(readValue: readStringField, defaultValue: '') required String id,
+    @JsonKey(fromJson: _mediaKindFromJson, toJson: _mediaKindToJson) required MediaKind kind,
+    String? guid,
+    String? title,
+    String? titleSort,
+    String? summary,
+    String? tagline,
+    String? originalTitle,
+    String? studio,
+    @JsonKey(fromJson: flexibleInt) int? year,
+    String? originallyAvailableAt,
+    String? contentRating,
+    String? parentId,
+    String? parentTitle,
+    String? parentThumbPath,
+    @JsonKey(fromJson: flexibleInt) int? parentIndex,
+    @JsonKey(fromJson: flexibleInt) int? index,
+    String? grandparentId,
+    String? grandparentTitle,
+    String? grandparentThumbPath,
+    String? grandparentArtPath,
+    List<String>? grandparentBackdropPaths,
+    String? thumbPath,
+    String? artPath,
+    List<String>? backdropPaths,
+    String? clearLogoPath,
+    String? backgroundSquarePath,
+    @JsonKey(fromJson: flexibleInt) int? durationMs,
+    @JsonKey(fromJson: flexibleInt) int? viewOffsetMs,
+    @JsonKey(fromJson: flexibleInt) int? viewCount,
+    @JsonKey(fromJson: flexibleInt) int? lastViewedAt,
+    @JsonKey(fromJson: flexibleInt) int? leafCount,
+    @JsonKey(fromJson: flexibleInt) int? viewedLeafCount,
+    @JsonKey(fromJson: flexibleInt) int? childCount,
+    @JsonKey(fromJson: flexibleInt) int? addedAt,
+    @JsonKey(fromJson: flexibleInt) int? updatedAt,
+    @JsonKey(fromJson: flexibleDouble) double? rating,
+    @JsonKey(fromJson: flexibleDouble) double? userRating,
+    bool? isFavorite,
+    @JsonKey(fromJson: _mediaItemStringList) List<String>? genres,
+    @JsonKey(fromJson: _mediaItemStringList) List<String>? directors,
+    @JsonKey(fromJson: _mediaItemStringList) List<String>? writers,
+    @JsonKey(fromJson: _mediaItemStringList) List<String>? producers,
+    @JsonKey(fromJson: _mediaItemStringList) List<String>? countries,
+    @JsonKey(fromJson: _mediaItemStringList) List<String>? collections,
+    @JsonKey(fromJson: _mediaItemStringList) List<String>? labels,
+    @JsonKey(fromJson: _mediaItemStringList) List<String>? styles,
+    @JsonKey(fromJson: _mediaItemStringList) List<String>? moods,
+    @JsonKey(fromJson: _mediaItemRolesFromJson) List<MediaRole>? roles,
+    @JsonKey(fromJson: _mediaItemVersionsFromJson) List<MediaVersion>? mediaVersions,
+    String? libraryId,
+    String? libraryTitle,
+    String? audioLanguage,
+    String? serverId,
+    String? serverName,
+
+    /// Always null for debrid items — there is no live server folder tree.
+    String? backendFolderKey,
+
+    /// Addon-specific extras: addon base URL, Stremio type/id, selected
+    /// stream descriptor, and (once resolved) the cached Real-Debrid link.
+    @JsonKey(fromJson: _mediaItemRawFromJson) Map<String, Object?>? raw,
+  }) = DebridMediaItem;
+
   MediaBackend get backend => switch (this) {
     PlexMediaItem() => MediaBackend.plex,
     JellyfinMediaItem() => MediaBackend.jellyfin,
+    DebridMediaItem() => MediaBackend.debrid,
   };
 
   /// Restore a [MediaItem] from a [toJson] payload. Missing/unknown backend
@@ -369,6 +500,7 @@ sealed class MediaItem with _$MediaItem {
     return switch (MediaBackend.fromString(json['backend'] as String?)) {
       MediaBackend.plex => _$PlexMediaItemFromJson(json),
       MediaBackend.jellyfin => _$JellyfinMediaItemFromJson(json),
+      MediaBackend.debrid => _$DebridMediaItemFromJson(json),
     };
   }
 
@@ -376,6 +508,7 @@ sealed class MediaItem with _$MediaItem {
     return switch (this) {
       final PlexMediaItem item => {'backend': MediaBackend.plex.id, ..._$PlexMediaItemToJson(item)},
       final JellyfinMediaItem item => {'backend': MediaBackend.jellyfin.id, ..._$JellyfinMediaItemToJson(item)},
+      final DebridMediaItem item => {'backend': MediaBackend.debrid.id, ..._$DebridMediaItemToJson(item)},
     };
   }
 
