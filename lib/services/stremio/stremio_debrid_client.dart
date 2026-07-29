@@ -191,7 +191,9 @@ class StremioDebridClient extends MediaServerClient {
     AbortController? abort,
   }) async {
     final parts = libraryId.split('|');
-    if (parts.length != 2) throw MediaServerHttpException(0, 'Malformed debrid library id: $libraryId');
+    if (parts.length != 2) {
+      throw MediaServerHttpException(type: MediaServerHttpErrorType.unknown, message: 'Malformed debrid library id: $libraryId');
+    }
     final skip = query.offset ?? 0;
     final previews = await _addon.fetchCatalog(parts[0], parts[1], extra: {'skip': skip.toString()});
     final items = previews.map(_mapPreviewToItem).toList();
@@ -258,14 +260,72 @@ class StremioDebridClient extends MediaServerClient {
   Future<List<MediaItem>?> fetchClientSideEpisodeQueue(String seriesId) async => null;
 
   @override
-  Future<List<MediaHub>> fetchGlobalHubs({int? limit}) async => const [];
-
-  @override
   Future<List<MediaItem>> fetchMoreHubItems(String hubId, {int? limit}) async => const [];
 
   @override
   Future<LibraryPage<MediaItem>> fetchMoreHubItemsPage(String hubId, {int? start, int? size, AbortController? abort}) =>
       _unsupported('fetchMoreHubItemsPage');
+
+  @override
+  Future<List<MediaHub>> fetchGlobalHubs({int limit = defaultHubPreviewLimit, bool includePlaybackHubs = true}) async =>
+      const [];
+
+  @override
+  Future<List<MediaItem>> fetchArtistAlbums(MediaItem artist) async => const [];
+
+  @override
+  Future<List<MediaItem>> fetchAlbumTracks(String albumId) async => const [];
+
+  @override
+  Future<List<MediaItem>> fetchInstantMix(String itemId, {int limit = 100}) => _unsupported('fetchInstantMix');
+
+  @override
+  Future<Lyrics?> fetchLyrics(MediaItem track) async => null;
+
+  @override
+  Future<List<MediaItem>> searchItems(String query, {int limit = 100, AbortController? abort}) async {
+    final catalogs = await _loadCatalogs();
+    final results = <MediaItem>[];
+    for (final catalog in catalogs) {
+      if (results.length >= limit) break;
+      final previews = await _addon.fetchCatalog(catalog.type, catalog.id, extra: {'search': query});
+      results.addAll(previews.map(_mapPreviewToItem));
+    }
+    return results.take(limit).toList();
+  }
+
+  @override
+  Future<List<MediaItem>> fetchRecentlyAdded({int limit = 50}) async {
+    final catalogs = await _loadCatalogs();
+    if (catalogs.isEmpty) return const [];
+    final previews = await _addon.fetchCatalog(catalogs.first.type, catalogs.first.id);
+    return previews.take(limit).map(_mapPreviewToItem).toList();
+  }
+
+  @override
+  Future<List<MediaItem>> fetchContinueWatching({int? count = 20}) async => const [];
+
+  @override
+  Future<List<MediaHub>> fetchLibraryHubs(
+    String libraryId, {
+    required String libraryName,
+    int limit = defaultHubPreviewLimit,
+    bool includePlaybackHubs = true,
+    MediaKind? libraryKind,
+  }) async => const [];
+
+  @override
+  Future<List<MediaHub>> fetchRelatedHubs(String id, {int count = 10}) async => const [];
+
+  @override
+  Future<List<MediaItem>> fetchExtras(String id) async => const [];
+
+  @override
+  Future<List<MediaItem>> fetchPersonMedia(String personId) async => const [];
+
+  @override
+  Future<LibraryPage<MediaItem>> fetchPersonMediaPage(String personId, {int? start, int? size, AbortController? abort}) =>
+      _unsupported('fetchPersonMediaPage');
 
   @override
   Future<void> markWatched(MediaItem item) async {}
@@ -396,7 +456,7 @@ class StremioDebridClient extends MediaServerClient {
     String? creditsPattern,
     bool forceChapterFallback = false,
     bool forceRefresh = false,
-  }) async => const PlaybackExtras(chapters: []);
+  }) async => PlaybackExtras(chapters: const [], markers: const []);
 
   @override
   Future<PlaybackExtras?> fetchPlaybackExtrasFromCacheOnly(
