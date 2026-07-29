@@ -1,0 +1,53 @@
+name: Quick Analyze (dev loop)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    name: flutter analyze only
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: true
+          token: ${{ github.token }}
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: "stable"
+          flutter-version: "3.44.0"
+          cache: true
+          pub-cache: false
+
+      - name: Cache Pub dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-v3-${{ hashFiles('**/pubspec.yaml', '**/pubspec.lock') }}
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Regenerate code (freezed/json_serializable)
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Commit regenerated files if changed
+        run: |
+          git config user.email "ci@dyksterhuis.com"
+          git config user.name "quick-analyze bot"
+          if ! git diff --quiet -- '*.g.dart' '*.freezed.dart'; then
+            git add -- '*.g.dart' '*.freezed.dart'
+            git commit -m "chore: regenerate freezed/json_serializable output [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          else
+            echo "No generated-file changes."
+          fi
+
+      - name: flutter analyze
+        run: flutter analyze --no-fatal-infos
