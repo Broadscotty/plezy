@@ -194,7 +194,7 @@ class StremioDebridClient extends MediaServerClient {
     if (parts.length != 2) {
       throw MediaServerHttpException(type: MediaServerHttpErrorType.unknown, message: 'Malformed debrid library id: $libraryId');
     }
-    final skip = query.offset ?? 0;
+    final skip = query.offset;
     final previews = await _addon.fetchCatalog(parts[0], parts[1], extra: {'skip': skip.toString()});
     final items = previews.map(_mapPreviewToItem).toList();
     return LibraryPage(items: items, totalCount: fallbackPageTotal(offset: skip, itemCount: items.length), offset: skip);
