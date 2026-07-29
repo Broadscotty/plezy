@@ -47,5 +47,14 @@ warning • Unused import: '../../utils/music_navigation.dart'. Try removing the
 warning • Unused import: '../../widgets/app_icon.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:15:8 • unused_import
 warning • Unused import: '../../widgets/music/mini_player.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:18:8 • unused_import
 warning • The '!' will have no effect because the receiver can't be null. Try removing the '!' operator • lib/services/music/music_playback_service_impl.dart:356:57 • unnecessary_non_null_assertion
+warning • Unused import: '../../media/lyrics.dart'. Try removing the import directive • lib/services/stremio/stremio_debrid_client.dart:8:8 • unused_import
+  error • Missing concrete implementations of 'MediaServerClient.fetchAlbumTracks', 'MediaServerClient.fetchArtistAlbums', 'MediaServerClient.fetchContinueWatching', 'MediaServerClient.fetchExtras', and 8 more. Try implementing the missing methods, or make the class abstract • lib/services/stremio/stremio_debrid_client.dart:72:7 • non_abstract_class_inherits_abstract_member
+  error • The named parameter 'type' is required, but there's no corresponding argument. Try adding the required argument • lib/services/stremio/stremio_debrid_client.dart:194:34 • missing_required_argument
+  error • Too many positional arguments: 0 expected, but 2 found. Try removing the extra positional arguments, or specifying the name for named arguments • lib/services/stremio/stremio_debrid_client.dart:194:59 • extra_positional_arguments_could_be_named
+warning • Dead code. Try removing the code, or fixing the code before it so that it can be reached • lib/services/stremio/stremio_debrid_client.dart:195:31 • dead_code
+warning • The left operand can't be null, so the right operand is never executed. Try removing the operator and the right operand • lib/services/stremio/stremio_debrid_client.dart:195:34 • dead_null_aware_expression
+  error • 'StremioDebridClient.fetchGlobalHubs' ('Future<List<MediaHub>> Function({int? limit})') isn't a valid override of 'MediaServerClient.fetchGlobalHubs' ('Future<List<MediaHub>> Function({bool includePlaybackHubs, int limit})') • lib/services/stremio/stremio_debrid_client.dart:261:26 • invalid_override
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/stremio/stremio_debrid_client.dart:399:15 • const_with_non_const
+  error • The named parameter 'markers' is required, but there's no corresponding argument. Try adding the required argument • lib/services/stremio/stremio_debrid_client.dart:399:21 • missing_required_argument
 
-7 issues found. (ran in 29.8s)
+16 issues found. (ran in 28.5s)
