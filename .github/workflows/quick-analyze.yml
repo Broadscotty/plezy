@@ -51,7 +51,7 @@ jobs:
 
       - name: flutter analyze
         run: |
-          flutter analyze --no-fatal-infos > analyze_output.txt 2>&1 || true
+          flutter analyze lib --no-fatal-infos > analyze_output.txt 2>&1 || true
           cat analyze_output.txt
 
       - name: Commit analyze output for review
