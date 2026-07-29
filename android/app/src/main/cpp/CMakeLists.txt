@@ -13,10 +13,30 @@ if(DOVI_ENABLE_LIBDOVI)
         IMPORTED_LOCATION "${DOVI_LIBDOVI_PREBUILT_ROOT}/${ANDROID_ABI}/lib/libdovi.a")
     target_compile_definitions(dovi_bridge PRIVATE DOVI_REAL_LINKED=1)
     target_include_directories(dovi_bridge PRIVATE ${CMAKE_SOURCE_DIR}/include)
-    target_link_libraries(dovi_bridge dovi_static log)
+
+    # Per-ABI: link Rust's required libraries (compiler-rt + libunwind)
+    if(ANDROID_ABI STREQUAL "arm64-v8a")
+        target_link_libraries(dovi_bridge PRIVATE dovi_static log
+            "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-aarch64-android.a"
+            "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/aarch64/libunwind.a")
+    elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
+        target_link_libraries(dovi_bridge PRIVATE dovi_static log
+            "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-arm-android.a"
+            "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/arm/libunwind.a")
+    elseif(ANDROID_ABI STREQUAL "x86_64")
+        target_link_libraries(dovi_bridge PRIVATE dovi_static log
+            "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-x86_64-android.a"
+            "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/x86_64/libunwind.a")
+    elseif(ANDROID_ABI STREQUAL "x86")
+        target_link_libraries(dovi_bridge PRIVATE dovi_static log
+            "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-i686-android.a"
+            "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/i686/libunwind.a")
+    else()
+        target_link_libraries(dovi_bridge PRIVATE dovi_static log)
+    endif()
 else()
     target_compile_definitions(dovi_bridge PRIVATE DOVI_REAL_LINKED=0)
-    target_link_libraries(dovi_bridge log)
+    target_link_libraries(dovi_bridge PRIVATE log)
 endif()
 
 foreach(ffmpeg_library avcodec avutil swresample)
@@ -31,7 +51,7 @@ target_compile_features(ffmpegJNI PRIVATE cxx_std_17)
 target_include_directories(ffmpegJNI PRIVATE
     "${MPV_FFMPEG_ROOT}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/media3_ffmpeg_decoder")
-target_link_libraries(ffmpegJNI
+target_link_libraries(ffmpegJNI PRIVATE
     avcodec
     avutil
     swresample

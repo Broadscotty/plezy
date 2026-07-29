@@ -1,10 +1,7 @@
 #include <android/log.h>
 #include <jni.h>
-
-#include <cstring>
-#include <memory>
-#include <new>
-#include <vector>
+#include <stdlib.h>
+#include <string.h>
 
 #define TAG "DoviBridge"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -48,63 +45,62 @@ extern "C" JNIEXPORT jint JNICALL Java_com_edde746_plezy_exoplayer_DoviBridge_na
     return CONVERT_FAILED;
   }
 
-  // Copy to native heap so libdovi never touches JVM heap memory.
-  // Do not use GetPrimitiveArrayCritical here: it can block concurrent GC
-  // compaction during sustained playback. A thread-local scratch buffer avoids
-  // per-frame heap churn while keeping libdovi away from JVM heap memory.
-  thread_local std::vector<uint8_t> scratch;
-  try {
-    scratch.resize(static_cast<size_t>(payload_length));
-  } catch (...) {
-    return CONVERT_FAILED;
+  // Thread-local scratch buffer avoids per-frame heap churn.
+  thread_local uint8_t scratch[MAX_RPU_INPUT_SIZE];
+  thread_local int scratch_init = 0;
+  if (!scratch_init) {
+    memset(scratch, 0, sizeof(scratch));
+    scratch_init = 1;
   }
 
-  env->GetByteArrayRegion(payload, payload_offset, payload_length, reinterpret_cast<jbyte*>(scratch.data()));
+  env->GetByteArrayRegion(payload, payload_offset, payload_length, reinterpret_cast<jbyte*>(scratch));
   if (env->ExceptionCheck()) {
     return CONVERT_FAILED;
   }
 
-  // The input is a complete (possibly escaped) HEVC UNSPEC62 NAL. Parsing it as
-  // a raw RPU after a framed-parser error can reinterpret malformed/truncated
-  // NAL bytes as valid metadata.
-  const auto rpu_len = static_cast<size_t>(payload_length);
-  using RpuPtr = std::unique_ptr<DoviRpuOpaque, decltype(&dovi_rpu_free)>;
-  RpuPtr rpu(dovi_parse_unspec62_nalu(scratch.data(), rpu_len), dovi_rpu_free);
-
+  // Parse the RPU NAL
+  DoviRpuOpaque* rpu = dovi_parse_unspec62_nalu(scratch, static_cast<size_t>(payload_length));
   if (rpu == nullptr) {
     return CONVERT_FAILED;
   }
 
-  const char* err = dovi_rpu_get_error(rpu.get());
+  const char* err = dovi_rpu_get_error(rpu);
   if (err != nullptr) {
     LOGW("RPU NAL parse failed: %.*s", MAX_ERROR_LOG_LENGTH, err);
+    dovi_rpu_free(rpu);
     return CONVERT_FAILED;
   }
 
-  // Mode 2 matches Kodi's P8.1 compatibility path and sets luma/chroma curves to no-op.
-  int32_t ret = dovi_convert_rpu_with_mode(rpu.get(), static_cast<uint8_t>(mode));
+  // Convert RPU
+  int32_t ret = dovi_convert_rpu_with_mode(rpu, static_cast<uint8_t>(mode));
   if (ret != 0) {
-    err = dovi_rpu_get_error(rpu.get());
+    err = dovi_rpu_get_error(rpu);
     LOGW("RPU conversion failed (mode %d): %.*s", mode, MAX_ERROR_LOG_LENGTH, err ? err : "unknown");
+    dovi_rpu_free(rpu);
     return CONVERT_FAILED;
   }
 
-  // Write back as UNSPEC62 NAL
-  using DoviDataPtr = std::unique_ptr<const DoviData, decltype(&dovi_data_free)>;
-  DoviDataPtr out(dovi_write_unspec62_nalu(rpu.get()), dovi_data_free);
+  // Write back as UNSPEC62 NAL (rpu must stay alive until out is consumed)
+  const DoviData* out = dovi_write_unspec62_nalu(rpu);
+
   if (out == nullptr || out->data == nullptr || out->len == 0) {
-    err = dovi_rpu_get_error(rpu.get());
-    LOGW("RPU write failed: %.*s", MAX_ERROR_LOG_LENGTH, err ? err : "unknown");
+    LOGW("RPU write failed");
+    dovi_rpu_free(rpu);
+    dovi_data_free(out);
     return CONVERT_FAILED;
   }
 
   if (out->len > MAX_RPU_OUTPUT_SIZE) {
     LOGW("RPU output unexpectedly large (%zu bytes), discarding", out->len);
+    dovi_rpu_free(rpu);
+    dovi_data_free(out);
     return CONVERT_FAILED;
   }
 
   const auto writable = static_cast<size_t>(logical_output_len - output_offset);
   if (out->len > writable) {
+    dovi_rpu_free(rpu);
+    dovi_data_free(out);
     return DESTINATION_TOO_SMALL;
   }
 
@@ -113,6 +109,9 @@ extern "C" JNIEXPORT jint JNICALL Java_com_edde746_plezy_exoplayer_DoviBridge_na
   const bool write_failed = env->ExceptionCheck();
   const auto written = static_cast<jint>(out->len);
 
+  // Clean up - rpu must outlive out
+  dovi_data_free(out);
+  dovi_rpu_free(rpu);
   return write_failed ? CONVERT_FAILED : written;
 #endif
 }
