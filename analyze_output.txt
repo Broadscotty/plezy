@@ -1,0 +1,108 @@
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 96.0.0 (105.0.0 available)
+  analysis_server_plugin 0.3.10 (0.3.20 available)
+  analyzer 10.2.0 (14.1.0 available)
+  analyzer_plugin 0.14.4 (0.14.14 available)
+! auto_updater_macos 1.0.0 from git https://github.com/edde746/auto_updater at 9e150f in packages/auto_updater_macos (overridden)
+! auto_updater_platform_interface 1.0.0 from git https://github.com/edde746/auto_updater at 9e150f in packages/auto_updater_platform_interface (overridden)
+! auto_updater_windows 1.0.0 from git https://github.com/edde746/auto_updater at 9e150f in packages/auto_updater_windows (overridden)
+  build 4.0.7 (4.0.8 available)
+  build_runner 2.15.1 (2.15.2 available)
+  cli_util 0.4.2 (0.5.2 available)
+  cronet_http 1.6.0 (1.9.0 available)
+  dart_style 3.1.7 (3.1.12 available)
+  dbus 0.7.13 (0.7.14 available)
+  device_info_plus 12.4.0 (13.2.0 available)
+  device_info_plus_platform_interface 7.0.3 (8.1.0 available)
+  drift_dev 2.34.0 (2.34.5 available)
+  hooks 2.0.2 (2.1.0 available)
+  injector 3.0.0 (4.0.0 available)
+  intl 0.20.2 (0.20.3 available)
+  jni 0.14.2 (1.0.0 available)
+  matcher 0.12.19 (0.12.20 available)
+  meta 1.18.0 (1.19.0 available)
+  native_toolchain_c 0.19.2 (0.19.3 available)
+  package_config 2.2.0 (3.0.0 available)
+  package_info_plus 9.0.1 (10.2.1 available)
+  package_info_plus_platform_interface 3.2.1 (4.1.0 available)
+  path_provider_android 2.2.23 (2.3.1 available)
+  qr 3.0.2 (4.0.0 available)
+  record_use 0.6.0 (1.0.0 available)
+  sqlparser 0.44.5 (0.45.0 available)
+  test_api 0.7.11 (0.7.13 available)
+  vector_math 2.2.0 (2.4.1 available)
+  wakelock_plus_platform_interface 1.4.0 (1.6.0 available)
+  win32 5.15.0 (6.3.0 available)
+  win32_registry 2.1.0 (3.0.3 available)
+Got dependencies!
+32 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing plezy...                                              
+
+  error • The type 'MediaBackend' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'MediaBackend.debrid'. Try adding a wildcard pattern or cases that match 'MediaBackend.debrid' • lib/media/media_item.dart:87:12 • non_exhaustive_switch_expression
+  error • The type 'MediaBackend' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'MediaBackend.debrid'. Try adding a wildcard pattern or cases that match 'MediaBackend.debrid' • lib/media/media_item.dart:369:12 • non_exhaustive_switch_expression
+  error • The type 'MediaBackend' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'MediaBackend.debrid'. Try adding a wildcard pattern or cases that match 'MediaBackend.debrid' • lib/providers/download_provider.dart:642:36 • non_exhaustive_switch_expression
+warning • Unused import: 'dart:io'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:1:8 • unused_import
+warning • Unused import: '../../services/music/music_playback_service.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:11:8 • unused_import
+warning • Unused import: '../../theme/mono_tokens.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:12:8 • unused_import
+warning • Unused import: '../../utils/music_navigation.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:13:8 • unused_import
+warning • Unused import: '../../widgets/app_icon.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:15:8 • unused_import
+warning • Unused import: '../../widgets/music/mini_player.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:18:8 • unused_import
+  error • The type 'MediaBackend' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'MediaBackend.debrid'. Try adding a wildcard pattern or cases that match 'MediaBackend.debrid' • lib/screens/libraries/library_alpha_bar_strategy.dart:64:12 • non_exhaustive_switch_expression
+  error • The type 'MediaBackend' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'MediaBackend.debrid'. Try adding a wildcard pattern or cases that match 'MediaBackend.debrid' • lib/services/cached_playback_metadata_service.dart:24:14 • non_exhaustive_switch_expression
+  error • The type 'MediaBackend' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'MediaBackend.debrid'. Try adding a wildcard pattern or cases that match 'MediaBackend.debrid' • lib/services/cached_playback_metadata_service.dart:43:14 • non_exhaustive_switch_expression
+warning • The '!' will have no effect because the receiver can't be null. Try removing the '!' operator • lib/services/music/music_playback_service_impl.dart:356:57 • unnecessary_non_null_assertion
+  error • The type 'MediaBackend' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'MediaBackend.debrid'. Try adding a wildcard pattern or cases that match 'MediaBackend.debrid' • lib/widgets/backend_badge.dart:24:19 • non_exhaustive_switch_expression
+  error • The type 'MediaBackend' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'MediaBackend.debrid'. Try adding a wildcard pattern or cases that match 'MediaBackend.debrid' • lib/widgets/rating_bottom_sheet.dart:608:49 • non_exhaustive_switch_expression
+  error • Target of URI doesn't exist: 'package:pigeon/pigeon.dart'. Try creating the file referenced by the URI, or try using a URI for a file that does exist • packages/wakelock_plus/pigeons/messages.dart:1:8 • uri_does_not_exist
+  error • Undefined name 'ConfigurePigeon' used as an annotation. Try defining the name or importing it from another library • packages/wakelock_plus/pigeons/messages.dart:13:1 • undefined_annotation
+  error • The function 'PigeonOptions' isn't defined. Try importing the library that defines 'PigeonOptions', correcting the name to the name of an existing function, or defining a function named 'PigeonOptions' • packages/wakelock_plus/pigeons/messages.dart:14:3 • undefined_function
+  error • The function 'ObjcOptions' isn't defined. Try importing the library that defines 'ObjcOptions', correcting the name to the name of an existing function, or defining a function named 'ObjcOptions' • packages/wakelock_plus/pigeons/messages.dart:19:18 • undefined_function
+  error • The function 'KotlinOptions' isn't defined. Try importing the library that defines 'KotlinOptions', correcting the name to the name of an existing function, or defining a function named 'KotlinOptions' • packages/wakelock_plus/pigeons/messages.dart:23:20 • undefined_function
+  error • Undefined name 'HostApi' used as an annotation. Try defining the name or importing it from another library • packages/wakelock_plus/pigeons/messages.dart:30:1 • undefined_annotation
+  error • Target of URI doesn't exist: 'package:mocktail/mocktail.dart'. Try creating the file referenced by the URI, or try using a URI for a file that does exist • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:5:8 • uri_does_not_exist
+  error • Missing concrete implementations of 'DBusClient.callMethod', 'DBusClient.close', 'DBusClient.emitSignal', 'DBusClient.getConnectionCredentials', and 21 more. Try implementing the missing methods, or make the class abstract • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:8:7 • non_abstract_class_inherits_abstract_member
+  error • Classes can only extend other classes. Try specifying a different superclass, or removing the extends clause • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:8:30 • extends_non_class
+  error • Missing concrete implementations of 'DBusRemoteObject.callMethod', 'DBusRemoteObject.getAllProperties', 'DBusRemoteObject.getProperty', 'DBusRemoteObject.introspect', and 6 more. Try implementing the missing methods, or make the class abstract • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:10:7 • non_abstract_class_inherits_abstract_member
+  error • Classes can only extend other classes. Try specifying a different superclass, or removing the extends clause • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:10:36 • extends_non_class
+  error • The function 'registerFallbackValue' isn't defined. Try importing the library that defines 'registerFallbackValue', correcting the name to the name of an existing function, or defining a function named 'registerFallbackValue' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:18:5 • undefined_function
+  error • The function 'registerFallbackValue' isn't defined. Try importing the library that defines 'registerFallbackValue', correcting the name to the name of an existing function, or defining a function named 'registerFallbackValue' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:19:5 • undefined_function
+  error • The function 'when' isn't defined. Try importing the library that defines 'when', correcting the name to the name of an existing function, or defining a function named 'when' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:40:7 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:46:19 • undefined_function
+  error • The function 'untilCalled' isn't defined. Try importing the library that defines 'untilCalled', correcting the name to the name of an existing function, or defining a function named 'untilCalled' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:52:38 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:53:60 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:53:83 • undefined_function
+  error • The function 'untilCalled' isn't defined. Try importing the library that defines 'untilCalled', correcting the name to the name of an existing function, or defining a function named 'untilCalled' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:56:57 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:62:17 • undefined_function
+  error • The function 'when' isn't defined. Try importing the library that defines 'when', correcting the name to the name of an existing function, or defining a function named 'when' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:72:7 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:73:62 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:73:85 • undefined_function
+  error • The function 'verify' isn't defined. Try importing the library that defines 'verify', correcting the name to the name of an existing function, or defining a function named 'verify' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:79:11 • undefined_function
+  error • The function 'captureAny' isn't defined. Try importing the library that defines 'captureAny', correcting the name to the name of an existing function, or defining a function named 'captureAny' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:80:70 • undefined_function
+  error • The function 'when' isn't defined. Try importing the library that defines 'when', correcting the name to the name of an existing function, or defining a function named 'when' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:93:7 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:94:62 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:94:85 • undefined_function
+  error • The function 'verify' isn't defined. Try importing the library that defines 'verify', correcting the name to the name of an existing function, or defining a function named 'verify' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:106:7 • undefined_function
+  error • The function 'when' isn't defined. Try importing the library that defines 'when', correcting the name to the name of an existing function, or defining a function named 'when' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:120:7 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:121:62 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:121:85 • undefined_function
+  error • The function 'verify' isn't defined. Try importing the library that defines 'verify', correcting the name to the name of an existing function, or defining a function named 'verify' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:142:7 • undefined_function
+  error • The function 'when' isn't defined. Try importing the library that defines 'when', correcting the name to the name of an existing function, or defining a function named 'when' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:155:7 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:156:62 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:156:85 • undefined_function
+  error • The function 'verify' isn't defined. Try importing the library that defines 'verify', correcting the name to the name of an existing function, or defining a function named 'verify' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:162:7 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:163:62 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:163:85 • undefined_function
+  error • The function 'when' isn't defined. Try importing the library that defines 'when', correcting the name to the name of an existing function, or defining a function named 'when' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:168:7 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:169:62 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:169:85 • undefined_function
+  error • The function 'when' isn't defined. Try importing the library that defines 'when', correcting the name to the name of an existing function, or defining a function named 'when' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:194:7 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:195:62 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:195:85 • undefined_function
+  error • The function 'when' isn't defined. Try importing the library that defines 'when', correcting the name to the name of an existing function, or defining a function named 'when' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:213:7 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:214:62 • undefined_function
+  error • The function 'any' isn't defined. Try importing the library that defines 'any', correcting the name to the name of an existing function, or defining a function named 'any' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:214:85 • undefined_function
+  error • The function 'verify' isn't defined. Try importing the library that defines 'verify', correcting the name to the name of an existing function, or defining a function named 'verify' • packages/wakelock_plus/test/wakelock_plus_linux_plugin_test.dart:223:7 • undefined_function
+
+64 issues found. (ran in 28.6s)
