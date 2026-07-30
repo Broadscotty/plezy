@@ -386,7 +386,7 @@ android {
     // install any of them as an "update" over the last one. This is a fixed,
     // checked-in keystore instead, so every sideload build shares one
     // signature and can update over the last one.
-    create("debug") {
+    getByName("debug") {
       keyAlias = "androiddebugkey"
       keyPassword = "android"
       storeFile = file("sideload-debug.keystore")
