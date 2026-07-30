@@ -12,6 +12,7 @@ import '../exceptions/media_server_exceptions.dart';
 import 'jellyfin_client.dart';
 import 'jellyfin_endpoint_discovery.dart';
 import 'plex_client.dart';
+import 'stremio/stremio_debrid_client.dart';
 import '../models/plex/plex_config.dart';
 import '../utils/app_logger.dart';
 import '../utils/media_server_timeouts.dart';
@@ -756,6 +757,43 @@ class MultiServerManager {
       appLogger.e('Failed to add Jellyfin server ${connection.serverName}', error: e, stackTrace: stackTrace);
       return false;
     }
+  }
+
+  /// Add a debrid server backed by a [DebridConnection] (Stremio addon URL +
+  /// Real-Debrid API token). Much simpler than Plex/Jellyfin: no endpoint
+  /// racing, no per-user profile concept -- the client goes straight into
+  /// the generic [_clients] map keyed by the connection's own id.
+  Future<bool> addDebridConnection(DebridConnection connection) async {
+    try {
+      final client = StremioDebridClient(
+        serverId: ServerId(connection.id),
+        addonUrl: connection.addonUrl,
+        realDebridApiToken: connection.realDebridApiToken,
+        serverName: connection.addonName,
+      );
+      final oldClient = _clients[connection.id];
+      if (oldClient != null) _closeClient(oldClient);
+      _clients[connection.id] = client;
+
+      final health = await client.checkHealth();
+      final healthy = health == HealthStatus.online;
+      _applyHealth(ServerId(connection.id), health);
+
+      appLogger.i('Added debrid server: ${connection.addonName}${healthy ? '' : ' (unhealthy)'}');
+      if (_connectivitySubscription == null && healthy) {
+        _startNetworkMonitoring();
+      }
+      return healthy;
+    } catch (e, stackTrace) {
+      appLogger.e('Failed to add debrid server ${connection.addonName}', error: e, stackTrace: stackTrace);
+      return false;
+    }
+  }
+
+  /// Remove a debrid server and close its client.
+  void removeDebridConnection(DebridConnection connection) {
+    final client = _clients.remove(connection.id);
+    if (client != null) _closeClient(client);
   }
 
   /// Whether the live client bound to [live] can serve [incoming] without

@@ -8,22 +8,26 @@ import '../utils/url_utils.dart';
 /// (e.g. database column values).
 enum ConnectionKind {
   plex,
-  jellyfin;
+  jellyfin,
+  debrid;
 
   String get id => switch (this) {
     ConnectionKind.plex => 'plex',
     ConnectionKind.jellyfin => 'jellyfin',
+    ConnectionKind.debrid => 'debrid',
   };
 
   static ConnectionKind fromId(String id) => switch (id) {
     'plex' => ConnectionKind.plex,
     'jellyfin' => ConnectionKind.jellyfin,
+    'debrid' => ConnectionKind.debrid,
     _ => throw ArgumentError('Unknown ConnectionKind id: $id'),
   };
 
   MediaBackend get backend => switch (this) {
     ConnectionKind.plex => MediaBackend.plex,
     ConnectionKind.jellyfin => MediaBackend.jellyfin,
+    ConnectionKind.debrid => MediaBackend.debrid,
   };
 }
 
@@ -359,6 +363,100 @@ class JellyfinConnection extends Connection {
       accessToken: json['accessToken'] as String? ?? '',
       deviceId: json['deviceId'] as String? ?? '',
       isAdministrator: json['isAdministrator'] as bool? ?? false,
+      status: status,
+      createdAt: createdAt,
+      lastAuthenticatedAt: lastAuthenticatedAt,
+    );
+  }
+}
+
+/// A Stremio-addon + Real-Debrid connection.
+///
+/// Much simpler than [PlexAccountConnection]/[JellyfinConnection]: there is
+/// no live server to authenticate against, no endpoint racing, and no
+/// per-user profile concept. The two credentials needed are the addon's base
+/// URL and a Real-Debrid API token.
+class DebridConnection extends Connection {
+  @override
+  final String id;
+
+  @override
+  final ConnectionStatus status;
+
+  @override
+  final DateTime createdAt;
+
+  @override
+  final DateTime? lastAuthenticatedAt;
+
+  /// Base URL of the Stremio addon (manifest.json's parent path).
+  final String addonUrl;
+
+  /// Addon's reported display name (manifest `name`), used as the label.
+  final String addonName;
+
+  /// Real-Debrid API token (personal access token from real-debrid.com/apitoken).
+  final String realDebridApiToken;
+
+  DebridConnection({
+    required this.id,
+    required this.addonUrl,
+    required this.addonName,
+    required this.realDebridApiToken,
+    this.status = ConnectionStatus.unknown,
+    required this.createdAt,
+    this.lastAuthenticatedAt,
+  });
+
+  @override
+  ConnectionKind get kind => ConnectionKind.debrid;
+
+  @override
+  String get displayName => addonName;
+
+  @override
+  String get displayLabel => addonName;
+
+  @override
+  String? get displaySubtitle => 'Stremio addon · Real-Debrid';
+
+  DebridConnection copyWith({
+    String? id,
+    String? addonUrl,
+    String? addonName,
+    String? realDebridApiToken,
+    ConnectionStatus? status,
+    DateTime? createdAt,
+    DateTime? lastAuthenticatedAt,
+  }) {
+    return DebridConnection(
+      id: id ?? this.id,
+      addonUrl: addonUrl ?? this.addonUrl,
+      addonName: addonName ?? this.addonName,
+      realDebridApiToken: realDebridApiToken ?? this.realDebridApiToken,
+      status: status ?? this.status,
+      createdAt: createdAt ?? this.createdAt,
+      lastAuthenticatedAt: lastAuthenticatedAt ?? this.lastAuthenticatedAt,
+    );
+  }
+
+  @override
+  Map<String, Object?> toConfigJson() {
+    return {'addonUrl': addonUrl, 'addonName': addonName, 'realDebridApiToken': realDebridApiToken};
+  }
+
+  factory DebridConnection.fromConfigJson({
+    required String id,
+    required Map<String, Object?> json,
+    required ConnectionStatus status,
+    required DateTime createdAt,
+    DateTime? lastAuthenticatedAt,
+  }) {
+    return DebridConnection(
+      id: id,
+      addonUrl: json['addonUrl'] as String? ?? '',
+      addonName: json['addonName'] as String? ?? 'Debrid addon',
+      realDebridApiToken: json['realDebridApiToken'] as String? ?? '',
       status: status,
       createdAt: createdAt,
       lastAuthenticatedAt: lastAuthenticatedAt,

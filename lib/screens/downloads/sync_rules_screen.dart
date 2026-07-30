@@ -172,6 +172,10 @@ class _SyncRuleTileState extends State<_SyncRuleTile> {
           if (serverMachineId == rule.serverId && serverName.isNotEmpty) {
             return _RuleServerInfo(label: serverName, isKnown: true);
           }
+        case DebridConnection(:final id, :final addonName):
+          if (id == rule.serverId && addonName.isNotEmpty) {
+            return _RuleServerInfo(label: addonName, isKnown: true);
+          }
       }
     }
 

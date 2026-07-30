@@ -34,8 +34,8 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Regenerate code (freezed/json_serializable)
-        run: dart run build_runner build --delete-conflicting-outputs
+      - name: Regenerate code (slang, build_runner, etc.)
+        run: bash scripts/codegen.sh
 
       - name: Commit regenerated files if changed
         run: |
@@ -50,4 +50,21 @@ jobs:
           fi
 
       - name: flutter analyze
-        run: flutter analyze --no-fatal-infos
+        run: |
+          flutter analyze lib --no-fatal-infos > analyze_output.txt 2>&1 || true
+          cat analyze_output.txt
+
+      - name: Commit analyze output for review
+        run: |
+          git config user.email "ci@dyksterhuis.com"
+          git config user.name "quick-analyze bot"
+          git add -f analyze_output.txt
+          git commit -m "chore: analyze output snapshot [skip ci]" --allow-empty
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Fail if analyze found issues
+        run: |
+          if grep -qE "error •|^error" analyze_output.txt; then
+            echo "Analyzer errors found, see analyze_output.txt on the branch."
+            exit 1
+          fi

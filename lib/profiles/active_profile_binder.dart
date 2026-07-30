@@ -394,6 +394,8 @@ class ActiveProfileBinder {
           expected.addAll(servers.map((server) => server.clientIdentifier));
         case JellyfinConnection(:final serverMachineId):
           expected.add(serverMachineId);
+        case DebridConnection():
+          break;
         case null:
           break;
       }
@@ -546,6 +548,9 @@ class ActiveProfileBinder {
         case JellyfinConnection():
           expected.add(conn.serverMachineId);
           futures.add(_bindJellyfin(conn, profileId: profile.id, generation: generation));
+        case DebridConnection():
+          expected.add(conn.id);
+          futures.add(_bindDebrid(conn, profileId: profile.id, generation: generation));
       }
     }
     final results = await Future.wait(futures);
@@ -1015,6 +1020,17 @@ class ActiveProfileBinder {
       return _ProfileBindResult.visible({conn.serverMachineId});
     }
     return _ProfileBindResult(visibleServerIds: const {}, expectedServerIds: {conn.serverMachineId});
+  }
+
+  Future<_ProfileBindResult> _bindDebrid(DebridConnection conn, {required String profileId, required int generation}) async {
+    final ok = await serverManager.addDebridConnection(conn);
+    if (!_isCurrentBind(profileId, generation)) {
+      return _ProfileBindResult(visibleServerIds: const {}, expectedServerIds: {conn.id});
+    }
+    if (ok) {
+      return _ProfileBindResult.visible({conn.id});
+    }
+    return _ProfileBindResult(visibleServerIds: const {}, expectedServerIds: {conn.id});
   }
 
   bool _isCurrentBind(String profileId, int generation) {

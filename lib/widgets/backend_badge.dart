@@ -24,6 +24,10 @@ class BackendBadge extends StatelessWidget {
     final asset = switch (backend) {
       MediaBackend.plex => 'assets/plex_chevron.svg',
       MediaBackend.jellyfin => 'assets/jellyfin_icon.svg',
+      // No dedicated Stremio/debrid mark yet -- reuse the Plezy mark as a
+      // stand-in. Note it's a fixed brand gradient, not currentColor like the
+      // other two, so it won't pick up [tint].
+      MediaBackend.debrid => 'assets/plezy_adaptive_foreground.svg',
     };
     return SvgPicture.asset(
       asset,
