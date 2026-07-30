@@ -40,14 +40,19 @@ Got dependencies!
 Try `flutter pub outdated` for more information.
 Analyzing lib...                                                
 
+  error • The type 'Connection?' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'DebridConnection()'. Try adding a default case or cases that match 'DebridConnection()' • lib/profiles/active_profile_binder.dart:392:7 • non_exhaustive_switch_statement
+  error • The type 'Connection' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'DebridConnection()'. Try adding a default case or cases that match 'DebridConnection()' • lib/profiles/active_profile_binder.dart:534:7 • non_exhaustive_switch_statement
+  error • The type 'Connection' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'DebridConnection()'. Try adding a wildcard pattern or cases that match 'DebridConnection()' • lib/profiles/profile_connection_cleanup.dart:320:10 • non_exhaustive_switch_expression
+  error • The type 'Connection' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'DebridConnection()'. Try adding a default case or cases that match 'DebridConnection()' • lib/providers/companion_remote_provider.dart:298:7 • non_exhaustive_switch_statement
 warning • Unused import: 'dart:io'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:1:8 • unused_import
 warning • Unused import: '../../services/music/music_playback_service.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:11:8 • unused_import
 warning • Unused import: '../../theme/mono_tokens.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:12:8 • unused_import
 warning • Unused import: '../../utils/music_navigation.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:13:8 • unused_import
 warning • Unused import: '../../widgets/app_icon.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:15:8 • unused_import
 warning • Unused import: '../../widgets/music/mini_player.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:18:8 • unused_import
+  error • The type 'Connection' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'DebridConnection()'. Try adding a default case or cases that match 'DebridConnection()' • lib/screens/downloads/sync_rules_screen.dart:164:7 • non_exhaustive_switch_statement
+  error • The type 'Connection' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'DebridConnection()'. Try adding a default case or cases that match 'DebridConnection()' • lib/screens/profile/borrow_connection_screen.dart:251:7 • non_exhaustive_switch_statement
+  error • The type 'Connection' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'DebridConnection()'. Try adding a wildcard pattern or cases that match 'DebridConnection()' • lib/screens/profile/profile_detail_screen.dart:264:12 • non_exhaustive_switch_expression
 warning • The '!' will have no effect because the receiver can't be null. Try removing the '!' operator • lib/services/music/music_playback_service_impl.dart:356:57 • unnecessary_non_null_assertion
-warning • Dead code. Try removing the code, or fixing the code before it so that it can be reached • lib/services/stremio/stremio_debrid_client.dart:197:31 • dead_code
-warning • The left operand can't be null, so the right operand is never executed. Try removing the operator and the right operand • lib/services/stremio/stremio_debrid_client.dart:197:34 • dead_null_aware_expression
 
-9 issues found. (ran in 28.7s)
+14 issues found. (ran in 22.5s)
