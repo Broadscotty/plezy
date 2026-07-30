@@ -4383,6 +4383,33 @@ class Translations$addServer$en {
 	/// en: 'Sign in to a Jellyfin server. Binds to ${name}.'
 	String connectToJellyfinCardSubtitleScoped({required Object name}) => 'Sign in to a Jellyfin server. Binds to ${name}.';
 
+	/// en: 'Add debrid source'
+	String get addDebridCard => 'Add debrid source';
+
+	/// en: 'Browse a Stremio addon, resolve streams through Real-Debrid.'
+	String get addDebridCardSubtitle => 'Browse a Stremio addon, resolve streams through Real-Debrid.';
+
+	/// en: 'Add a Stremio/Real-Debrid source. Binds to ${name}.'
+	String addDebridCardSubtitleScoped({required Object name}) => 'Add a Stremio/Real-Debrid source. Binds to ${name}.';
+
+	/// en: 'Add debrid source'
+	String get addDebridTitle => 'Add debrid source';
+
+	/// en: 'Addon URL'
+	String get debridAddonUrl => 'Addon URL';
+
+	/// en: 'The base URL of a Stremio addon (e.g. a Torrentio-style catalog/stream addon).'
+	String get debridAddonUrlHelper => 'The base URL of a Stremio addon (e.g. a Torrentio-style catalog/stream addon).';
+
+	/// en: 'Real-Debrid API token'
+	String get debridApiToken => 'Real-Debrid API token';
+
+	/// en: 'From real-debrid.com/apitoken.'
+	String get debridApiTokenHelper => 'From real-debrid.com/apitoken.';
+
+	/// en: 'Add source'
+	String get addDebridServer => 'Add source';
+
 	/// en: 'Borrow from another profile'
 	String get borrowFromAnotherProfile => 'Borrow from another profile';
 
@@ -6648,6 +6675,15 @@ extension on Translations {
 			'addServer.connectToJellyfinCard' => 'Connect to Jellyfin',
 			'addServer.connectToJellyfinCardSubtitle' => 'Enter your server URL, username, and password.',
 			'addServer.connectToJellyfinCardSubtitleScoped' => ({required Object name}) => 'Sign in to a Jellyfin server. Binds to ${name}.',
+			'addServer.addDebridCard' => 'Add debrid source',
+			'addServer.addDebridCardSubtitle' => 'Browse a Stremio addon, resolve streams through Real-Debrid.',
+			'addServer.addDebridCardSubtitleScoped' => ({required Object name}) => 'Add a Stremio/Real-Debrid source. Binds to ${name}.',
+			'addServer.addDebridTitle' => 'Add debrid source',
+			'addServer.debridAddonUrl' => 'Addon URL',
+			'addServer.debridAddonUrlHelper' => 'The base URL of a Stremio addon (e.g. a Torrentio-style catalog/stream addon).',
+			'addServer.debridApiToken' => 'Real-Debrid API token',
+			'addServer.debridApiTokenHelper' => 'From real-debrid.com/apitoken.',
+			'addServer.addDebridServer' => 'Add source',
 			'addServer.borrowFromAnotherProfile' => 'Borrow from another profile',
 			'addServer.borrowFromAnotherProfileSubtitle' => 'Reuse another profile\'s connection. PIN-protected profiles require a PIN.',
 			_ => null,
