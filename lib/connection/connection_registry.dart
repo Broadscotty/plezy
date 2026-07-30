@@ -159,6 +159,13 @@ class ConnectionRegistry {
           createdAt: createdAt,
           lastAuthenticatedAt: lastAuth,
         ),
+        ConnectionKind.debrid => DebridConnection.fromConfigJson(
+          id: row.id,
+          json: revealed.config,
+          status: ConnectionStatus.unknown,
+          createdAt: createdAt,
+          lastAuthenticatedAt: lastAuth,
+        ),
       };
       if (revealed.migrated) {
         await upsert(connection);
