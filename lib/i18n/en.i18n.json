@@ -1618,6 +1618,15 @@
     "connectToJellyfinCard": "Connect to Jellyfin",
     "connectToJellyfinCardSubtitle": "Enter your server URL, username, and password.",
     "connectToJellyfinCardSubtitleScoped": "Sign in to a Jellyfin server. Binds to ${name}.",
+    "addDebridCard": "Add debrid source",
+    "addDebridCardSubtitle": "Browse a Stremio addon, resolve streams through Real-Debrid.",
+    "addDebridCardSubtitleScoped": "Add a Stremio/Real-Debrid source. Binds to ${name}.",
+    "addDebridTitle": "Add debrid source",
+    "debridAddonUrl": "Addon URL",
+    "debridAddonUrlHelper": "The base URL of a Stremio addon (e.g. a Torrentio-style catalog/stream addon).",
+    "debridApiToken": "Real-Debrid API token",
+    "debridApiTokenHelper": "From real-debrid.com/apitoken.",
+    "addDebridServer": "Add source",
     "borrowFromAnotherProfile": "Borrow from another profile",
     "borrowFromAnotherProfileSubtitle": "Reuse another profile's connection. PIN-protected profiles require a PIN."
   }

@@ -34,8 +34,8 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Regenerate code (freezed/json_serializable)
-        run: dart run build_runner build --delete-conflicting-outputs
+      - name: Regenerate code (slang, build_runner, etc.)
+        run: bash scripts/codegen.sh
 
       - name: Commit regenerated files if changed
         run: |

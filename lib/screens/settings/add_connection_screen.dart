@@ -11,6 +11,7 @@ import '../../widgets/backend_badge.dart';
 import '../../widgets/focused_scroll_scaffold.dart';
 import '../profile/borrow_connection_screen.dart';
 import 'add_jellyfin_screen.dart';
+import 'add_debrid_screen.dart';
 import 'add_plex_account_screen.dart';
 
 /// Picker shown when the user taps "Add connection".
@@ -45,6 +46,14 @@ class AddConnectionScreen extends StatelessWidget {
             ? t.addServer.connectToJellyfinCardSubtitleScoped(name: targetProfile!.displayName)
             : t.addServer.connectToJellyfinCardSubtitle,
         builder: (_) => AddJellyfinScreen(targetProfile: targetProfile),
+      ),
+      _BackendOption(
+        backend: MediaBackend.debrid,
+        title: t.addServer.addDebridCard,
+        subtitle: scoped
+            ? t.addServer.addDebridCardSubtitleScoped(name: targetProfile!.displayName)
+            : t.addServer.addDebridCardSubtitle,
+        builder: (_) => AddDebridScreen(targetProfile: targetProfile),
       ),
       if (scoped)
         _BackendOption(
