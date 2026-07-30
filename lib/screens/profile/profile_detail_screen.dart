@@ -264,6 +264,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen> with Controll
     return switch (conn) {
       PlexAccountConnection(:final servers) => servers.map((s) => s.clientIdentifier).toSet(),
       JellyfinConnection(:final serverMachineId) => {serverMachineId},
+      DebridConnection(:final id) => {id},
     };
   }
 
