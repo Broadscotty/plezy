@@ -377,6 +377,21 @@ android {
         storePassword = keystoreProperties["storePassword"] as String
       }
     }
+
+    // Overrides AGP's implicit debug signingConfig, which points at
+    // ~/.android/debug.keystore -- auto-generated fresh with a *different*
+    // random key on every ephemeral CI runner. That made every sideload
+    // build (which has no key.properties, so it falls back to this config)
+    // a different, mutually-incompatible signature, so Android refused to
+    // install any of them as an "update" over the last one. This is a fixed,
+    // checked-in keystore instead, so every sideload build shares one
+    // signature and can update over the last one.
+    create("debug") {
+      keyAlias = "androiddebugkey"
+      keyPassword = "android"
+      storeFile = file("sideload-debug.keystore")
+      storePassword = "android"
+    }
   }
 
   buildTypes {
