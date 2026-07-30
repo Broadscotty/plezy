@@ -55,6 +55,7 @@ warning • Unused import: '../../theme/mono_tokens.dart'. Try removing the impo
 warning • Unused import: '../../utils/music_navigation.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:13:8 • unused_import
 warning • Unused import: '../../widgets/app_icon.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:15:8 • unused_import
 warning • Unused import: '../../widgets/music/mini_player.dart'. Try removing the import directive • lib/screens/downloads/downloads_screen.dart:18:8 • unused_import
+   info • Use an initializing formal to assign a parameter to a field. Try using an initialing formal ('this._addonClientFactory') to initialize the field • lib/screens/settings/add_debrid_screen.dart:34:7 • prefer_initializing_formals
 warning • The '!' will have no effect because the receiver can't be null. Try removing the '!' operator • lib/services/music/music_playback_service_impl.dart:356:57 • unnecessary_non_null_assertion
 
-7 issues found. (ran in 25.1s)
+8 issues found. (ran in 28.1s)
