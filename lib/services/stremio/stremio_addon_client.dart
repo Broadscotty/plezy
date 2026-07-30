@@ -132,21 +132,41 @@ class StremioAddonClient {
       _http = httpClient ?? http.Client();
 
   static String _normalizeBaseUrl(String url) {
-    var normalized = url.trim();
+    // Copy-pasting a long config string (common for Torrentio-style addons)
+    // can pick up stray whitespace from how it was displayed/wrapped. URLs
+    // never legitimately contain literal spaces/newlines/tabs here.
+    var normalized = url.trim().replaceAll(RegExp(r'\s+'), '');
     if (normalized.endsWith('/manifest.json')) {
       normalized = normalized.substring(0, normalized.length - '/manifest.json'.length);
     }
     if (normalized.endsWith('/')) {
       normalized = normalized.substring(0, normalized.length - 1);
     }
+    // {addonUrl}/configure is the addon's settings *page* (HTML), not the
+    // manifest URL -- easy to copy by mistake since Torrentio's own site
+    // doesn't clearly distinguish the two.
+    if (normalized.endsWith('/configure')) {
+      normalized = normalized.substring(0, normalized.length - '/configure'.length);
+    }
     return normalized;
+  }
+
+  /// Redact the config segment of a Torrentio-style addon URL before it
+  /// reaches an exception message, log line, or crash report. These addons
+  /// embed the Real-Debrid API token directly in the URL path (there's no
+  /// separate auth header to redact instead), so the raw URL must never be
+  /// surfaced anywhere it could be screenshotted, logged, or sent to Sentry.
+  static String _redactForDisplay(Uri uri) {
+    final segments = uri.pathSegments;
+    final lastSegment = segments.isEmpty ? '' : segments.last;
+    return '${uri.scheme}://${uri.host}/•••/$lastSegment';
   }
 
   Future<Map<String, dynamic>> _getJson(String path) async {
     final uri = Uri.parse('$addonUrl$path');
     final response = await _http.get(uri);
     if (response.statusCode != 200) {
-      throw StremioAddonException('HTTP ${response.statusCode} for $uri');
+      throw StremioAddonException('HTTP ${response.statusCode} for ${_redactForDisplay(uri)}');
     }
     try {
       final decoded = jsonDecode(response.body);
@@ -155,7 +175,7 @@ class StremioAddonClient {
       }
       return decoded;
     } on FormatException catch (e) {
-      throw StremioAddonException('Malformed JSON from $uri: $e');
+      throw StremioAddonException('Malformed JSON from ${_redactForDisplay(uri)}: $e');
     }
   }
 
