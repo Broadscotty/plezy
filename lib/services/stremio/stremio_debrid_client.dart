@@ -75,7 +75,8 @@ class StremioDebridClient extends MediaServerClient {
   @override
   final String? serverName;
 
-  final StremioAddonClient _addon;
+  final StremioAddonClient _streamAddon;
+  final StremioAddonClient _catalogAddon;
   final RealDebridClient _realDebrid;
 
   /// Stremio catalog descriptors this addon exposes, read from its manifest
@@ -84,12 +85,19 @@ class StremioDebridClient extends MediaServerClient {
 
   bool _offlineMode = false;
 
+  /// Stremio's own official metadata/catalog addon. Used for browsing and
+  /// item detail regardless of which stream addon the user configured --
+  /// Torrentio-style addons only provide streams, not catalogs, same as in
+  /// real Stremio where Cinemeta is what actually populates Discover/Board.
+  static const _cinemetaUrl = 'https://v3-cinemeta.strem.io/manifest.json';
+
   StremioDebridClient({
     required this.serverId,
     required String addonUrl,
     required String realDebridApiToken,
     this.serverName,
-  }) : _addon = StremioAddonClient(addonUrl: addonUrl),
+  }) : _streamAddon = StremioAddonClient(addonUrl: addonUrl),
+       _catalogAddon = StremioAddonClient(addonUrl: _cinemetaUrl),
        _realDebrid = RealDebridClient(apiToken: realDebridApiToken);
 
   @override
@@ -109,14 +117,18 @@ class StremioDebridClient extends MediaServerClient {
 
   @override
   void close() {
-    _addon.close();
+    _streamAddon.close();
+    _catalogAddon.close();
     _realDebrid.close();
   }
 
   @override
   Future<HealthStatus> checkHealth() async {
     try {
-      await _addon.fetchManifest();
+      // Check the addon the user actually configured (the stream provider) --
+      // that's the one whose validity matters to them, since the catalog
+      // addon (Cinemeta) is fixed and always assumed reachable.
+      await _streamAddon.fetchManifest();
       return HealthStatus.online;
     } on StremioAddonException catch (e) {
       appLogger.w('Stremio addon health check failed', error: e);
@@ -130,7 +142,7 @@ class StremioDebridClient extends MediaServerClient {
   Future<List<({String type, String id, String name})>> _loadCatalogs() async {
     final cached = _catalogs;
     if (cached != null) return cached;
-    final manifest = await _addon.fetchManifest();
+    final manifest = await _catalogAddon.fetchManifest();
     final rawCatalogs = manifest['catalogs'] as List? ?? const [];
     final catalogs = rawCatalogs
         .whereType<Map<String, dynamic>>()
@@ -161,7 +173,7 @@ class StremioDebridClient extends MediaServerClient {
       genres: preview.genres,
       serverId: serverId.toString(),
       serverName: serverName,
-      raw: {'stremioType': preview.type, 'stremioId': preview.id, 'addonUrl': _addon.addonUrl},
+      raw: {'stremioType': preview.type, 'stremioId': preview.id, 'addonUrl': _streamAddon.addonUrl},
     );
   }
 
@@ -195,7 +207,7 @@ class StremioDebridClient extends MediaServerClient {
       throw MediaServerHttpException(type: MediaServerHttpErrorType.unknown, message: 'Malformed debrid library id: $libraryId');
     }
     final skip = query.offset;
-    final previews = await _addon.fetchCatalog(parts[0], parts[1], extra: {'skip': skip.toString()});
+    final previews = await _catalogAddon.fetchCatalog(parts[0], parts[1], extra: {'skip': skip.toString()});
     final items = previews.map(_mapPreviewToItem).toList();
     return LibraryPage(items: items, totalCount: fallbackPageTotal(offset: skip, itemCount: items.length), offset: skip);
   }
@@ -217,7 +229,7 @@ class StremioDebridClient extends MediaServerClient {
   @override
   Future<MediaItem?> fetchItem(String id) async {
     final parsed = StremioItemId.parse(id);
-    final meta = await _addon.fetchMeta(parsed.type, parsed.stremioId);
+    final meta = await _catalogAddon.fetchMeta(parsed.type, parsed.stremioId);
     if (meta == null) return null;
     return _mapPreviewToItem(meta);
   }
@@ -229,7 +241,7 @@ class StremioDebridClient extends MediaServerClient {
   @override
   Future<List<MediaItem>> fetchChildren(String parentId) async {
     final parsed = StremioItemId.parse(parentId);
-    final meta = await _addon.fetchMeta(parsed.type, parsed.stremioId);
+    final meta = await _catalogAddon.fetchMeta(parsed.type, parsed.stremioId);
     final videos = meta?.videos;
     if (videos == null || videos.isEmpty) return const [];
     return videos
@@ -247,7 +259,7 @@ class StremioDebridClient extends MediaServerClient {
             thumbPath: video.thumbnail,
             serverId: serverId.toString(),
             serverName: serverName,
-            raw: {'stremioType': parsed.type, 'stremioId': video.id, 'addonUrl': _addon.addonUrl},
+            raw: {'stremioType': parsed.type, 'stremioId': video.id, 'addonUrl': _streamAddon.addonUrl},
           ),
         )
         .toList();
@@ -312,7 +324,7 @@ class StremioDebridClient extends MediaServerClient {
     final results = <MediaItem>[];
     for (final catalog in catalogs) {
       if (results.length >= limit) break;
-      final previews = await _addon.fetchCatalog(catalog.type, catalog.id, extra: {'search': query});
+      final previews = await _catalogAddon.fetchCatalog(catalog.type, catalog.id, extra: {'search': query});
       results.addAll(previews.map(_mapPreviewToItem));
     }
     return results.take(limit).toList();
@@ -322,7 +334,7 @@ class StremioDebridClient extends MediaServerClient {
   Future<List<MediaItem>> fetchRecentlyAdded({int limit = 50}) async {
     final catalogs = await _loadCatalogs();
     if (catalogs.isEmpty) return const [];
-    final previews = await _addon.fetchCatalog(catalogs.first.type, catalogs.first.id);
+    final previews = await _catalogAddon.fetchCatalog(catalogs.first.type, catalogs.first.id);
     return previews.take(limit).map(_mapPreviewToItem).toList();
   }
 
@@ -549,7 +561,7 @@ class StremioDebridClient extends MediaServerClient {
     final stremioType = item.raw?['stremioType'] as String?;
     final stremioId = item.raw?['stremioId'] as String?;
     if (stremioType == null || stremioId == null) return null;
-    final streams = await _addon.fetchStreams(stremioType, stremioId);
+    final streams = await _streamAddon.fetchStreams(stremioType, stremioId);
     for (final stream in streams) {
       if (stream.isDirectUrl) return stream.url;
       final magnet = stream.magnetUri;
