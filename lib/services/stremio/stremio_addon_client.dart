@@ -41,6 +41,29 @@ class StremioStream {
   }
 }
 
+/// A single episode entry from a series meta response's `videos` array.
+class StremioMetaVideo {
+  final String id;
+  final int? season;
+  final int? episode;
+  final String? title;
+  final String? thumbnail;
+  final String? overview;
+
+  const StremioMetaVideo({required this.id, this.season, this.episode, this.title, this.thumbnail, this.overview});
+
+  factory StremioMetaVideo.fromJson(Map<String, dynamic> json) {
+    return StremioMetaVideo(
+      id: json['id'] as String? ?? '',
+      season: (json['season'] as num?)?.toInt(),
+      episode: (json['episode'] as num?)?.toInt(),
+      title: (json['title'] ?? json['name']) as String?,
+      thumbnail: json['thumbnail'] as String?,
+      overview: json['overview'] as String?,
+    );
+  }
+}
+
 /// Catalog/meta preview item — the shape returned by `/catalog` rows and
 /// (for the top-level fields) `/meta` detail responses.
 class StremioMetaPreview {
@@ -53,6 +76,10 @@ class StremioMetaPreview {
   final int? releaseYear;
   final List<String>? genres;
 
+  /// Episode list, present on a series' full `/meta` response only (never on
+  /// catalog preview rows).
+  final List<StremioMetaVideo>? videos;
+
   const StremioMetaPreview({
     required this.id,
     required this.type,
@@ -62,10 +89,12 @@ class StremioMetaPreview {
     this.description,
     this.releaseYear,
     this.genres,
+    this.videos,
   });
 
   factory StremioMetaPreview.fromJson(Map<String, dynamic> json) {
     final releaseInfo = json['releaseInfo'] as String?;
+    final rawVideos = json['videos'] as List?;
     return StremioMetaPreview(
       id: json['id'] as String? ?? '',
       type: json['type'] as String? ?? 'movie',
@@ -75,6 +104,7 @@ class StremioMetaPreview {
       description: json['description'] as String?,
       releaseYear: releaseInfo != null ? int.tryParse(releaseInfo.split(RegExp(r'[-–]')).first.trim()) : null,
       genres: (json['genres'] as List?)?.map((e) => e.toString()).toList(),
+      videos: rawVideos?.whereType<Map<String, dynamic>>().map(StremioMetaVideo.fromJson).toList(),
     );
   }
 }

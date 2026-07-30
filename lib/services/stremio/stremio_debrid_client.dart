@@ -227,7 +227,31 @@ class StremioDebridClient extends MediaServerClient {
       (item: await fetchItem(id), onDeckEpisode: null);
 
   @override
-  Future<List<MediaItem>> fetchChildren(String parentId) async => const [];
+  Future<List<MediaItem>> fetchChildren(String parentId) async {
+    final parsed = StremioItemId.parse(parentId);
+    final meta = await _addon.fetchMeta(parsed.type, parsed.stremioId);
+    final videos = meta?.videos;
+    if (videos == null || videos.isEmpty) return const [];
+    return videos
+        .map(
+          (video) => MediaItem(
+            id: StremioItemId(parsed.type, video.id).toString(),
+            backend: MediaBackend.debrid,
+            kind: MediaKind.episode,
+            title: video.title,
+            summary: video.overview,
+            index: video.episode,
+            parentIndex: video.season,
+            parentId: parentId,
+            parentTitle: meta?.name,
+            thumbPath: video.thumbnail,
+            serverId: serverId.toString(),
+            serverName: serverName,
+            raw: {'stremioType': parsed.type, 'stremioId': video.id, 'addonUrl': _addon.addonUrl},
+          ),
+        )
+        .toList();
+  }
 
   @override
   Future<List<MediaItem>> fetchLibraryFolders(String libraryId, {void Function(List<MediaItem> itemsSoFar)? onPage}) =>
@@ -254,7 +278,7 @@ class StremioDebridClient extends MediaServerClient {
   }) => _unsupported('fetchPlayableDescendantsPage');
 
   @override
-  Future<List<MediaItem>> fetchPlayableDescendants(String parentId) async => const [];
+  Future<List<MediaItem>> fetchPlayableDescendants(String parentId) => fetchChildren(parentId);
 
   @override
   Future<List<MediaItem>?> fetchClientSideEpisodeQueue(String seriesId) async => null;
