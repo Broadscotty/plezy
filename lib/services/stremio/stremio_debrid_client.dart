@@ -153,7 +153,13 @@ class StremioDebridClient extends MediaServerClient {
             name: c['name'] as String? ?? (c['id'] as String? ?? 'Catalog'),
           ),
         )
-        .where((c) => c.id.isNotEmpty)
+        // Only "top" is generically browsable with just skip/pagination.
+        // Cinemeta's other catalogs either require parameters only Stremio's
+        // own app supplies internally (New/year needs a required genre;
+        // Last videos/Calendar videos need specific show-id lists for
+        // episode-release tracking, not general browsing) or would multiply
+        // into several near-duplicate library entries per type.
+        .where((c) => c.id == 'top')
         .toList();
     _catalogs = catalogs;
     return catalogs;
@@ -207,9 +213,13 @@ class StremioDebridClient extends MediaServerClient {
       throw MediaServerHttpException(type: MediaServerHttpErrorType.unknown, message: 'Malformed debrid library id: $libraryId');
     }
     final skip = query.offset;
-    final previews = await _catalogAddon.fetchCatalog(parts[0], parts[1], extra: {'skip': skip.toString()});
-    final items = previews.map(_mapPreviewToItem).toList();
-    return LibraryPage(items: items, totalCount: fallbackPageTotal(offset: skip, itemCount: items.length), offset: skip);
+    try {
+      final previews = await _catalogAddon.fetchCatalog(parts[0], parts[1], extra: {'skip': skip.toString()});
+      final items = previews.map(_mapPreviewToItem).toList();
+      return LibraryPage(items: items, totalCount: fallbackPageTotal(offset: skip, itemCount: items.length), offset: skip);
+    } on StremioAddonException catch (e) {
+      throw MediaServerHttpException(type: MediaServerHttpErrorType.unknown, message: e.message);
+    }
   }
 
   @override

@@ -16,9 +16,17 @@ String localizedLoadErrorMessage(Object error, StackTrace stackTrace, {required 
       case MediaServerHttpErrorType.connectionError:
         return t.errors.connectionFailed;
       case MediaServerHttpErrorType.cancelled:
+        break;
       case MediaServerHttpErrorType.unknown:
+        if (error.message.isNotEmpty) {
+          return '${t.errors.unableToLoad(context: context)} (${error.message})';
+        }
         break;
     }
+  } else if (error is MediaServerException && error.message.isNotEmpty) {
+    // Sealed hierarchy, but not one of the HTTP-specific cases above --
+    // still show the real reason rather than the generic fallback.
+    return '${t.errors.unableToLoad(context: context)} (${error.message})';
   }
 
   return t.errors.unableToLoad(context: context);
