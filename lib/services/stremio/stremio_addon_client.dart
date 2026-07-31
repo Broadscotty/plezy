@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -164,7 +165,12 @@ class StremioAddonClient {
 
   Future<Map<String, dynamic>> _getJson(String path) async {
     final uri = Uri.parse('$addonUrl$path');
-    final response = await _http.get(uri);
+    final http.Response response;
+    try {
+      response = await _http.get(uri).timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw StremioAddonException('Timed out reaching ${_redactForDisplay(uri)}');
+    }
     if (response.statusCode != 200) {
       throw StremioAddonException('HTTP ${response.statusCode} for ${_redactForDisplay(uri)}');
     }

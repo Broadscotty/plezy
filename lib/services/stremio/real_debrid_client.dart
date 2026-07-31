@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -38,11 +39,9 @@ class RealDebridClient {
 
   /// Add a magnet link, returning the new torrent's Real-Debrid id.
   Future<String> addMagnet(String magnetUri) async {
-    final response = await _http.post(
-      Uri.parse('$_baseUrl/torrents/addMagnet'),
-      headers: _authHeaders,
-      body: {'magnet': magnetUri},
-    );
+    final response = await _http
+        .post(Uri.parse('$_baseUrl/torrents/addMagnet'), headers: _authHeaders, body: {'magnet': magnetUri})
+        .timeout(const Duration(seconds: 15));
     _throwIfError(response, 'addMagnet');
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     final id = json['id'] as String?;
@@ -52,7 +51,9 @@ class RealDebridClient {
 
   /// Torrent status/file listing for [torrentId].
   Future<Map<String, dynamic>> torrentInfo(String torrentId) async {
-    final response = await _http.get(Uri.parse('$_baseUrl/torrents/info/$torrentId'), headers: _authHeaders);
+    final response = await _http
+        .get(Uri.parse('$_baseUrl/torrents/info/$torrentId'), headers: _authHeaders)
+        .timeout(const Duration(seconds: 15));
     _throwIfError(response, 'torrentInfo');
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
@@ -60,11 +61,13 @@ class RealDebridClient {
   /// Select which files within the torrent should be downloaded. Real-Debrid
   /// requires this before it will fetch/cache the torrent at all.
   Future<void> selectFiles(String torrentId, {List<String>? fileIds}) async {
-    final response = await _http.post(
-      Uri.parse('$_baseUrl/torrents/selectFiles/$torrentId'),
-      headers: _authHeaders,
-      body: {'files': (fileIds == null || fileIds.isEmpty) ? 'all' : fileIds.join(',')},
-    );
+    final response = await _http
+        .post(
+          Uri.parse('$_baseUrl/torrents/selectFiles/$torrentId'),
+          headers: _authHeaders,
+          body: {'files': (fileIds == null || fileIds.isEmpty) ? 'all' : fileIds.join(',')},
+        )
+        .timeout(const Duration(seconds: 15));
     // Real-Debrid returns 204 with no body on success.
     if (response.statusCode != 204 && response.statusCode != 200) {
       _throwIfError(response, 'selectFiles');
@@ -74,11 +77,9 @@ class RealDebridClient {
   /// Resolve a Real-Debrid-hosted link (from a torrent's `links` array) to a
   /// direct, unrestricted HTTPS URL the player/downloader can fetch.
   Future<String> unrestrictLink(String link) async {
-    final response = await _http.post(
-      Uri.parse('$_baseUrl/unrestrict/link'),
-      headers: _authHeaders,
-      body: {'link': link},
-    );
+    final response = await _http
+        .post(Uri.parse('$_baseUrl/unrestrict/link'), headers: _authHeaders, body: {'link': link})
+        .timeout(const Duration(seconds: 15));
     _throwIfError(response, 'unrestrictLink');
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     final download = json['download'] as String?;
