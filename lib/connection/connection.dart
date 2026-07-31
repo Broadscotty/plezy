@@ -412,13 +412,13 @@ class DebridConnection extends Connection {
   ConnectionKind get kind => ConnectionKind.debrid;
 
   @override
-  String get displayName => addonName;
+  String get displayName => 'Stremio';
 
   @override
-  String get displayLabel => addonName;
+  String get displayLabel => displayName;
 
   @override
-  String? get displaySubtitle => 'Stremio addon · Real-Debrid';
+  String? get displaySubtitle => '$addonName · Real-Debrid';
 
   DebridConnection copyWith({
     String? id,

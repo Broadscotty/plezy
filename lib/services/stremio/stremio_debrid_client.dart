@@ -191,7 +191,7 @@ class StremioDebridClient extends MediaServerClient {
         MediaLibrary(
           id: '${catalog.type}|${catalog.id}',
           backend: MediaBackend.debrid,
-          title: catalog.name,
+          title: catalog.type == 'series' ? 'TV Shows' : 'Movies',
           kind: catalog.type == 'series' ? MediaKind.show : MediaKind.movie,
         ),
     ];
@@ -217,8 +217,10 @@ class StremioDebridClient extends MediaServerClient {
       final previews = await _catalogAddon.fetchCatalog(parts[0], parts[1], extra: {'skip': skip.toString()});
       final items = previews.map(_mapPreviewToItem).toList();
       return LibraryPage(items: items, totalCount: fallbackPageTotal(offset: skip, itemCount: items.length), offset: skip);
-    } on StremioAddonException catch (e) {
-      throw MediaServerHttpException(type: MediaServerHttpErrorType.unknown, message: e.message);
+    } on StremioAddonException {
+      rethrow;
+    } catch (e) {
+      throw StremioAddonException('Unexpected error loading catalog (${e.runtimeType})');
     }
   }
 
