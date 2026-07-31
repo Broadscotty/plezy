@@ -170,6 +170,13 @@ class StremioAddonClient {
       response = await _http.get(uri).timeout(const Duration(seconds: 15));
     } on TimeoutException {
       throw StremioAddonException('Timed out reaching ${_redactForDisplay(uri)}');
+    } catch (e) {
+      // Any other network-layer failure (http.ClientException for a reset/
+      // aborted connection, DNS failure, TLS error, etc.) includes the full
+      // request URI verbatim in its own message -- for these addons that
+      // means the Real-Debrid token embedded in the path. Never let the raw
+      // exception propagate.
+      throw StremioAddonException('Connection failed reaching ${_redactForDisplay(uri)} (${e.runtimeType})');
     }
     if (response.statusCode != 200) {
       throw StremioAddonException('HTTP ${response.statusCode} for ${_redactForDisplay(uri)}');

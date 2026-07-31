@@ -54,55 +54,41 @@ class _AddDebridScreenState extends State<AddDebridScreen> with AsyncFormStateMi
   }
 
   Future<void> _addServer() async {
-    // Diagnostic: unmissable, synchronous, fires before any async work or
-    // validation. If this doesn't appear on tap, the button press itself
-    // isn't reaching this handler at all.
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add source tapped'), duration: Duration(seconds: 2)));
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    final addonUrl = _addonUrlController.text.trim();
+    final token = _tokenController.text.trim();
 
-    try {
-      if (!(_formKey.currentState?.validate() ?? false)) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Form validation failed'), duration: Duration(seconds: 2)));
-        return;
-      }
-      final addonUrl = _addonUrlController.text.trim();
-      final token = _tokenController.text.trim();
+    await runAsync<void>(
+      () async {
+        final client = widget._addonClientFactory?.call(addonUrl) ?? StremioAddonClient(addonUrl: addonUrl);
+        final manifest = await client.fetchManifest();
+        client.close();
+        final addonName = manifest['name'] as String? ?? addonUrl;
 
-      await runAsync<void>(
-        () async {
-          final client = widget._addonClientFactory?.call(addonUrl) ?? StremioAddonClient(addonUrl: addonUrl);
-          final manifest = await client.fetchManifest();
-          client.close();
-          final addonName = manifest['name'] as String? ?? addonUrl;
+        final connection = DebridConnection(
+          id: const Uuid().v4(),
+          addonUrl: addonUrl,
+          addonName: addonName,
+          realDebridApiToken: token,
+          createdAt: DateTime.now(),
+        );
 
-          final connection = DebridConnection(
-            id: const Uuid().v4(),
-            addonUrl: addonUrl,
-            addonName: addonName,
-            realDebridApiToken: token,
-            createdAt: DateTime.now(),
-          );
-
-          if (!mounted) return;
-          await _persistAndExit(connection);
-        },
-        errorMapper: (e) {
-          appLogger.e('Add debrid server failed', error: e);
-          return t.addServer.couldNotReachServer(error: e.toString());
-        },
-      );
-    } catch (e, st) {
-      // Top-level safety net: catches anything outside runAsync's own
-      // handling (e.g. a bug in validate() itself, or in _persistAndExit
-      // before/after the point runAsync wraps).
-      appLogger.e('Unhandled error in _addServer', error: e, stackTrace: st);
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Unhandled: $e'), duration: const Duration(seconds: 6)));
-      }
-    }
+        if (!mounted) return;
+        await _persistAndExit(connection);
+      },
+      errorMapper: (e) {
+        appLogger.e('Add debrid server failed', error: e);
+        final message = t.addServer.couldNotReachServer(error: e.toString());
+        // A slow network failure can resolve well after the user has
+        // stopped watching this exact spot on screen -- a SnackBar is
+        // guaranteed visible regardless of scroll position or timing, unlike
+        // the inline error text alone.
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), duration: const Duration(seconds: 8)));
+        }
+        return message;
+      },
+    );
   }
 
   Future<void> _persistAndExit(DebridConnection connection) async {
