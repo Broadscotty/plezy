@@ -134,7 +134,7 @@ class DownloadManagerService {
 
   /// Higher native retry ceiling for debrid-sourced downloads specifically.
   /// See the DownloadTask construction sites for the reasoning.
-  static const _nativeRetriesDebrid = 15;
+  static const _nativeRetriesDebrid = 10;
   static const _defaultAutoRetryDelay = Duration(seconds: 30);
   static const _progressDebounceDelay = Duration(seconds: 2);
   static const _videoExtensions = {'.mp4', '.ogv', '.mkv', '.m4v', '.avi'};
