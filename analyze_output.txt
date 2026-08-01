@@ -64,4 +64,4 @@ warning • Unused import: '../../widgets/music/mini_player.dart'. Try removing 
    info • Use an initializing formal to assign a parameter to a field. Try using an initialing formal ('this._addonClientFactory') to initialize the field • lib/screens/settings/add_debrid_screen.dart:34:7 • prefer_initializing_formals
 warning • The '!' will have no effect because the receiver can't be null. Try removing the '!' operator • lib/services/music/music_playback_service_impl.dart:356:57 • unnecessary_non_null_assertion
 
-8 issues found. (ran in 30.1s)
+8 issues found. (ran in 21.6s)
