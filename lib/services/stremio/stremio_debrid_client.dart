@@ -193,6 +193,7 @@ class StremioDebridClient extends MediaServerClient {
           backend: MediaBackend.debrid,
           title: catalog.type == 'series' ? 'TV Shows' : 'Movies',
           kind: catalog.type == 'series' ? MediaKind.show : MediaKind.movie,
+          serverId: serverId.toString(),
         ),
     ];
   }
