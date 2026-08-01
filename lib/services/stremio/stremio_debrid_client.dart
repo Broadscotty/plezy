@@ -16,6 +16,7 @@ import '../../media/media_playlist.dart';
 import '../../media/media_server_client.dart';
 import '../../media/media_sort.dart';
 import '../../media/media_source_info.dart';
+import '../../media/media_version.dart';
 import '../../media/playback_report_metadata.dart';
 import '../../media/server_capabilities.dart';
 import '../../utils/app_logger.dart';
@@ -244,7 +245,21 @@ class StremioDebridClient extends MediaServerClient {
     final parsed = StremioItemId.parse(id);
     final meta = await _catalogAddon.fetchMeta(parsed.type, parsed.stremioId);
     if (meta == null) return null;
-    return _mapPreviewToItem(meta);
+    final item = _mapPreviewToItem(meta);
+    final versions = await _streamsToVersions(parsed.type, parsed.stremioId);
+    return versions.isEmpty ? item : item.copyWith(mediaVersions: versions);
+  }
+
+  /// Map an item's candidate streams to [MediaVersion]s so Plezy's existing
+  /// version-picker (already shown for any item with more than one version)
+  /// lets the user choose a specific release/quality, the same way the
+  /// Stremio app itself prompts for a file/source before playing.
+  Future<List<MediaVersion>> _streamsToVersions(String stremioType, String stremioId) async {
+    final streams = await _streamAddon.fetchStreams(stremioType, stremioId);
+    return [
+      for (var i = 0; i < streams.length; i++)
+        MediaVersion(id: i.toString(), name: streams[i].title ?? streams[i].name ?? 'Source ${i + 1}', parts: const []),
+    ];
   }
 
   @override
@@ -570,11 +585,24 @@ class StremioDebridClient extends MediaServerClient {
   /// addon streams are used as-is; torrent-backed streams are added to
   /// Real-Debrid and resolved to a direct link. Picks the first stream that
   /// resolves successfully.
-  Future<String?> _resolveDirectUrl(MediaItem item) async {
+  Future<String?> _resolveDirectUrl(MediaItem item, {int mediaIndex = 0}) async {
     final stremioType = item.raw?['stremioType'] as String?;
     final stremioId = item.raw?['stremioId'] as String?;
     if (stremioType == null || stremioId == null) return null;
     final streams = await _streamAddon.fetchStreams(stremioType, stremioId);
+    if (streams.isEmpty) return null;
+
+    // mediaIndex comes from the version picker (populated from these same
+    // streams in fetchItem) when the user explicitly chose one -- honor
+    // that choice rather than silently falling back to a different stream.
+    if (mediaIndex > 0 && mediaIndex < streams.length) {
+      final chosen = streams[mediaIndex];
+      if (chosen.isDirectUrl) return chosen.url;
+      final magnet = chosen.magnetUri;
+      if (magnet != null) return _realDebrid.resolveMagnetToDirectLink(magnet);
+      return null;
+    }
+
     for (final stream in streams) {
       if (stream.isDirectUrl) return stream.url;
       final magnet = stream.magnetUri;
@@ -590,7 +618,7 @@ class StremioDebridClient extends MediaServerClient {
 
   @override
   Future<PlaybackInitializationResult> getPlaybackInitialization(PlaybackInitializationOptions options) async {
-    final videoUrl = await _resolveDirectUrl(options.metadata);
+    final videoUrl = await _resolveDirectUrl(options.metadata, mediaIndex: options.selectedMediaIndex);
     if (videoUrl == null) {
       throw const PlaybackException('No resolvable stream found for this item', reason: PlaybackFailureReason.noPlayableSource);
     }
@@ -602,7 +630,7 @@ class StremioDebridClient extends MediaServerClient {
 
   @override
   Future<DownloadResolution> resolveDownload(MediaItem item, {int mediaIndex = 0, String? mediaSourceId}) async {
-    final videoUrl = await _resolveDirectUrl(item);
+    final videoUrl = await _resolveDirectUrl(item, mediaIndex: mediaIndex);
     return DownloadResolution(videoUrl: videoUrl);
   }
 
@@ -616,5 +644,5 @@ class StremioDebridClient extends MediaServerClient {
 
   @override
   Future<String?> resolveExternalPlaybackUrl(MediaItem item, {int mediaIndex = 0, String? mediaSourceId}) =>
-      _resolveDirectUrl(item);
+      _resolveDirectUrl(item, mediaIndex: mediaIndex);
 }
