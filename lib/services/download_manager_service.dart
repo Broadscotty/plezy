@@ -131,6 +131,10 @@ class DownloadManagerService {
   static const _downloadGroup = 'video_downloads';
   static const _maxAppRetries = 3;
   static const _nativeRetries = 5;
+
+  /// Higher native retry ceiling for debrid-sourced downloads specifically.
+  /// See the DownloadTask construction sites for the reasoning.
+  static const _nativeRetriesDebrid = 15;
   static const _defaultAutoRetryDelay = Duration(seconds: 30);
   static const _progressDebounceDelay = Duration(seconds: 2);
   static const _videoExtensions = {'.mp4', '.ogv', '.mkv', '.m4v', '.avi'};
@@ -1835,7 +1839,7 @@ class DownloadManagerService {
             group: _downloadGroup,
             updates: Updates.statusAndProgress,
             requiresWiFi: requiresWiFi,
-            retries: _nativeRetries,
+            retries: metadata.backend == MediaBackend.debrid ? _nativeRetriesDebrid : _nativeRetries,
             allowPause: false,
             metaData: globalKey,
             displayName: displayName,
@@ -1892,7 +1896,11 @@ class DownloadManagerService {
           group: _downloadGroup,
           updates: Updates.statusAndProgress,
           requiresWiFi: requiresWiFi,
-          retries: _nativeRetries,
+          // Real-Debrid CDN links haven't been observed to support HTTP
+          // Range/resume as reliably as Plex's own server -- give them more
+          // native attempts before escalating to the app-level retry, which
+          // wipes progress and restarts clean.
+          retries: metadata.backend == MediaBackend.debrid ? _nativeRetriesDebrid : _nativeRetries,
           allowPause: true,
           metaData: globalKey,
           displayName: displayName,
