@@ -48,6 +48,9 @@ endforeach()
 add_library(ffmpegJNI SHARED
     media3_ffmpeg_decoder/ffmpeg_jni.cc)
 target_compile_features(ffmpegJNI PRIVATE cxx_std_17)
+# NDK 29 + Flutter snap header conflict: snap's glibc stdlib.h
+# conflicts with NDK sysroot. Unset _FORTIFY_SOURCE to avoid.
+target_compile_options(ffmpegJNI PRIVATE -U_FORTIFY_SOURCE)
 target_include_directories(ffmpegJNI PRIVATE
     "${MPV_FFMPEG_ROOT}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/media3_ffmpeg_decoder")

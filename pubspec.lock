@@ -96,11 +96,9 @@ packages:
   background_downloader:
     dependency: "direct main"
     description:
-      path: "."
-      ref: "021e2075260e324b7440a5c81b57bf0242d35020"
-      resolved-ref: "021e2075260e324b7440a5c81b57bf0242d35020"
-      url: "https://github.com/edde746/background_downloader"
-    source: git
+      path: "third_party/background_downloader"
+      relative: true
+    source: path
     version: "9.5.5"
   boolean_selector:
     dependency: transitive

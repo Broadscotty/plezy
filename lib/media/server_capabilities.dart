@@ -212,6 +212,37 @@ class ServerCapabilities {
     audioTranscoding: true,
   );
 
+  /// Defaults for a minimal debrid backend (Stremio addon protocol +
+  /// Real-Debrid resolution). No live server, so no server-side playlists,
+  /// collections, live TV, sync, ratings, favorites, or endpoint failover --
+  /// only browsing an addon's catalog, resolving a stream, and downloading
+  /// it through the existing offline-download engine.
+  static const ServerCapabilities debrid = ServerCapabilities(
+    serverSidePlayQueue: false,
+    serverSidePlaylists: false,
+    liveTv: false,
+    liveTvDvr: false,
+    subtitleSearch: false,
+    videoTranscoding: false,
+    serverSideSync: false,
+    richHubs: false,
+    numericUserRating: false,
+    userFavorites: false,
+    continueWatchingRemoval: false,
+    externalSubtitleSearch: false,
+    trackPreferencePersistence: false,
+    endpointFailover: false,
+    offlineWatchQueue: false,
+    discordRpc: false,
+    richMetadataEdit: false,
+    alphaBar: AlphaBarMode.none,
+    scrubThumbnails: false,
+    folderGrouping: false,
+    lyrics: false,
+    instantMix: false,
+    audioTranscoding: false,
+  );
+
   ServerCapabilities copyWith({
     bool? serverSidePlayQueue,
     bool? serverSidePlaylists,

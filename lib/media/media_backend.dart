@@ -7,16 +7,19 @@ import '../utils/app_logger.dart';
 /// in v1) and so persisted records can round-trip the source of an item.
 enum MediaBackend {
   plex,
-  jellyfin;
+  jellyfin,
+  debrid;
 
   String get id => switch (this) {
     MediaBackend.plex => 'plex',
     MediaBackend.jellyfin => 'jellyfin',
+    MediaBackend.debrid => 'debrid',
   };
 
   static MediaBackend fromId(String id) => switch (id) {
     'plex' => MediaBackend.plex,
     'jellyfin' => MediaBackend.jellyfin,
+    'debrid' => MediaBackend.debrid,
     _ => throw ArgumentError('Unknown MediaBackend id: $id'),
   };
 
@@ -27,11 +30,12 @@ enum MediaBackend {
   ///   surfaces corrupted cache rows or schema drift instead of silently
   ///   misclassifying Jellyfin items as Plex.
   static MediaBackend fromString(String? id) {
-    if (id != null && id != 'plex' && id != 'jellyfin') {
+    if (id != null && id != 'plex' && id != 'jellyfin' && id != 'debrid') {
       appLogger.w('Unknown MediaBackend id "$id"; defaulting to plex');
     }
     return switch (id) {
       'jellyfin' => MediaBackend.jellyfin,
+      'debrid' => MediaBackend.debrid,
       _ => MediaBackend.plex,
     };
   }

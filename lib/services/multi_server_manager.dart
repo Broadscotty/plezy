@@ -12,6 +12,7 @@ import '../exceptions/media_server_exceptions.dart';
 import 'jellyfin_client.dart';
 import 'jellyfin_endpoint_discovery.dart';
 import 'plex_client.dart';
+import 'stremio/stremio_debrid_client.dart';
 import '../models/plex/plex_config.dart';
 import '../utils/app_logger.dart';
 import '../utils/media_server_timeouts.dart';
@@ -756,6 +757,59 @@ class MultiServerManager {
       appLogger.e('Failed to add Jellyfin server ${connection.serverName}', error: e, stackTrace: stackTrace);
       return false;
     }
+  }
+
+  /// Add a debrid server backed by a [DebridConnection] (Stremio addon URL +
+  /// Real-Debrid API token). Much simpler than Plex/Jellyfin: no endpoint
+  /// racing, no per-user profile concept -- the client goes straight into
+  /// the generic [_clients] map keyed by the connection's own id.
+  Future<bool> addDebridConnection(DebridConnection connection) async {
+    try {
+      final client = StremioDebridClient(
+        serverId: ServerId(connection.id),
+        addonUrl: connection.addonUrl,
+        realDebridApiToken: connection.realDebridApiToken,
+        serverName: connection.addonName,
+      );
+      final oldClient = _clients[connection.id];
+      if (oldClient != null) _closeClient(oldClient);
+      _clients[connection.id] = client;
+
+      // Debrid health is status-only, not a gate: the user explicitly
+      // configured this connection, so a slow manifest must never cause the
+      // server to be "unadded" and removed by the rebind cleanup. Probe in
+      // the background and apply the result when it lands.
+      unawaited(_probeDebridHealth(connection.id, client));
+      appLogger.i('Added debrid server: ${connection.addonName}');
+      if (_connectivitySubscription == null) {
+        _startNetworkMonitoring();
+      }
+      return true;
+    } catch (e, stackTrace) {
+      appLogger.e('Failed to add debrid server ${connection.addonName}', error: e, stackTrace: stackTrace);
+      return false;
+    }
+  }
+
+  /// Background health probe for a debrid connection. Never throws: a slow
+  /// or unreachable addon only flips the server's status indicator.
+  Future<void> _probeDebridHealth(String connectionId, StremioDebridClient client) async {
+    try {
+      final health = await client.checkHealth();
+      _applyHealth(ServerId(connectionId), health);
+      if (health != HealthStatus.online) {
+        appLogger.w('Debrid server $connectionId health check failed: ${health.name}');
+      }
+    } catch (e) {
+      appLogger.w('Debrid server $connectionId health probe error: $e');
+      _applyHealth(ServerId(connectionId), HealthStatus.offline);
+    }
+  }
+
+  /// Remove a debrid server and close its client.
+  void removeDebridConnection(DebridConnection connection) {
+    final client = _clients.remove(connection.id);
+    if (client != null) _closeClient(client);
   }
 
   /// Whether the live client bound to [live] can serve [incoming] without

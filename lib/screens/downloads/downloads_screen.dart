@@ -437,6 +437,7 @@ class _DownloadedMusicContentState extends State<_DownloadedMusicContent> {
                   density: density,
                   padding: effectivePadding,
                   fullBleedImage: fullCardLayout,
+                  shape: CardShape.square,
                   itemBuilder: (context, position) {
                     final album = albums[position.index];
                     return FocusableMediaCard(

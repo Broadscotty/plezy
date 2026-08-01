@@ -5,6 +5,7 @@ import '../media/ids.dart';
 import 'dart:io';
 import 'package:background_downloader/background_downloader.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as path;
 import 'package:plezy/utils/media_server_http_client.dart';
@@ -140,6 +141,12 @@ class DownloadManagerService {
 
   // Keys currently being cancelled — prevents queue promotion/completion races.
   final Set<String> _cancellingKeys = {};
+
+  // Keys whose pre-enqueue cancel of a stale WorkManager work is in flight.
+  // The old worker's death rattle (failed/canceled) is suppressed while a
+  // native task for the key is confirmed active again.
+  final Set<String> _recoveringKeys = {};
+  final Map<String, Timer> _recoveryGuards = {};
 
   // Keys whose completion callback is in-flight — prevents orphan scan from re-queuing them
   final Set<String> _completingKeys = {};
@@ -407,6 +414,18 @@ class DownloadManagerService {
       }
       final deletedRoot = await _database.deleteDownload(globalKey);
       root ??= deletedRoot;
+      // Clear the plugin's own TaskRecord so rescheduleKilledTasks on the
+      // next startup doesn't resurrect a user-deleted download (it compares
+      // plugin-DB records against the native queue and re-enqueues any it
+      // finds missing).
+      final rowTaskId = row?.bgTaskId;
+      if (rowTaskId != null && rowTaskId.isNotEmpty && downloadsSupported) {
+        try {
+          await FileDownloader().database.deleteRecordWithId(rowTaskId);
+        } catch (e) {
+          appLogger.w('Failed to clear plugin record for deleted download ${row?.globalKey}', error: e);
+        }
+      }
       if (root != null) {
         await _releaseSafRootIfUnowned(root);
       }
@@ -812,6 +831,154 @@ class DownloadManagerService {
     _fileDownloaderInitialized = true;
   }
 
+  /// 8-char lowercase hex FNV-1a 32-bit hash of [taskId], mirroring
+  /// Helpers.kt partFileSuffix in background_downloader. The plugin names
+  /// partial files `<dest>.<hash>.part`; we must reconstruct the same name
+  /// to find an interrupted partial.
+  String _partFileSuffix(String taskId) {
+    var hash = 0x811c9dc5;
+    for (final codeUnit in taskId.codeUnits) {
+      hash = ((hash ^ (codeUnit & 0xff)) * 0x01000193) & 0xffffffff;
+    }
+    return hash.toRadixString(16).padLeft(8, '0');
+  }
+
+  String _partialFilePath(String destFilePath, String taskId) {
+    return '$destFilePath.${_partFileSuffix(taskId)}.part';
+  }
+
+  /// Find interrupted downloads with a partial on disk and resume them via
+  /// the plugin's ResumeData + resume() path (native Range continuation).
+  /// Returns how many were successfully resumed.
+  Future<int> _resumeInterruptedPartials() async {
+    if (!downloadsSupported || !_fileDownloaderInitialized) return 0;
+    final rows = await _database.select(_database.downloadedMedia).get();
+    var resumed = 0;
+    for (final row in rows) {
+      if (DownloadStatus.values[row.status] != DownloadStatus.downloading) continue;
+      final taskId = row.bgTaskId;
+      if (taskId == null || taskId.isEmpty) continue;
+
+      // Resolve the absolute destination path. videoFilePath is only written
+      // on completion, so mid-download rows carry NULL — fall back to the
+      // plugin's own task record (its filePath() mirrors native resolution,
+      // so the partial name matches what the native downloader wrote).
+      String? destPath;
+      final storedPath = row.videoFilePath;
+      if (storedPath != null && storedPath.isNotEmpty && !_storageService.isSafUri(storedPath)) {
+        destPath = await _storageService.ensureAbsolutePath(storedPath);
+      }
+      if ((destPath == null || destPath.isEmpty) && downloadsSupported) {
+        try {
+          final record = await FileDownloader().database.recordForId(taskId);
+          if (record != null && record.task is DownloadTask && record.task is! UriDownloadTask) {
+            destPath = await record.task.filePath();
+            appLogger.d('Resume dest from plugin record for ${row.globalKey}: $destPath');
+          }
+        } catch (e) {
+          appLogger.w('Resume path lookup failed for ${row.globalKey}', error: e);
+        }
+      }
+      if (destPath == null || destPath.isEmpty) continue;
+      final file = File(destPath);
+      // Hashed partial (fork naming) first, then legacy.
+      final hashedPartial = File(_partialFilePath(destPath, taskId));
+      final legacyPartial = File('$destPath.part');
+      final partial = hashedPartial.existsSync()
+          ? hashedPartial
+          : (legacyPartial.existsSync() ? legacyPartial : null);
+      if (partial == null || partial.lengthSync() <= 0) continue;
+
+      // Cached resolved URL: prefer the persisted one; otherwise try to
+      // reconstruct from the row (no URL column here).
+      final url = row.resolvedUrl;
+      if (url == null || url.isEmpty) {
+        appLogger.w('Resume skipped for ${row.globalKey}: no cached resolved URL');
+        continue;
+      }
+
+      // Fetch the ETag so the native resume ETag check passes. If we can't
+      // get one, skip resume (restart is the safe fallback).
+      String? eTag;
+      try {
+        final headResp = await _httpHead(url);
+        eTag = headResp;
+      } catch (e) {
+        appLogger.w('Resume skipped for ${row.globalKey}: HEAD failed ($e)');
+        continue;
+      }
+
+      final task = DownloadTask(
+        taskId: taskId,
+        url: url,
+        filename: file.uri.pathSegments.isEmpty ? '' : file.uri.pathSegments.last,
+        directory: file.uri.pathSegments.length > 1
+            ? file.uri.pathSegments.sublist(0, file.uri.pathSegments.length - 1).join('/')
+            : '',
+        baseDirectory: BaseDirectory.root,
+        group: _downloadGroup,
+        updates: Updates.statusAndProgress,
+        metaData: row.globalKey,
+        displayName: row.globalKey,
+        allowPause: true,
+      );
+      try {
+        // Suppress the stale worker's death rattle (failed/canceled) for this
+        // key for 30s. The recovery below cancels the leftover WorkManager work
+        // and re-enqueues with the SAME taskId, so a late failed/canceled event
+        // in this window is the old worker, not the download. The .part
+        // survives mid-read cancels (they map to failed, never deleteTempFile).
+        _recoveringKeys.add(row.globalKey);
+        _recoveryGuards[row.globalKey]?.cancel();
+        _recoveryGuards[row.globalKey] = Timer(const Duration(seconds: 30), () {
+          _recoveringKeys.remove(row.globalKey);
+          _recoveryGuards.remove(row.globalKey);
+        });
+
+        // Remove the stale WorkManager work from the killed session BEFORE
+        // enqueueing. A leftover RUNNING work shares the unique work name, and
+        // APPEND_OR_REPLACE would kill it mid-read; its blocking HTTP read
+        // only notices the cancellation seconds later, surfacing as a spurious
+        // "Download failed ... JobCancellationException". This prevents the
+        // double-worker race and the 0% restart it can cause.
+        //
+        // killTaskWithId (NOT cancelTaskWithId): cancel marks the task
+        // canceled and the zombie's stop path DELETES the .part (Download
+        // TaskRunner deletes temp files on canceled); kill only drops the
+        // WorkManager work, the zombie stops as 'failed', and the partial
+        // survives for the resume enqueue below.
+        try {
+          await FileDownloader().killTaskWithId(taskId);
+        } catch (e) {
+          appLogger.d('Pre-enqueue kill skipped for ${row.globalKey}: $e');
+        }
+
+        await FileDownloader().setResumeData(ResumeData(
+          task,
+          partial.path,
+          partial.lengthSync(),
+          eTag,
+        ));
+        // enqueue (NOT resume): resume() only registers a canResumeTask
+        // completer and never starts the native task. enqueue() passes the
+        // stored resume data (startByte + eTag) to the native worker, whose
+        // determineIfResume verifies the partial and continues from N bytes.
+        // The task becomes active natively, so rescheduleKilledTasks sees it
+        // as present and skips it — no double-enqueue, no fresh start.
+        final ok = await FileDownloader().enqueue(task);
+        if (ok) {
+          appLogger.i('Resumed ${row.globalKey} from ${partial.path} (${partial.lengthSync()} bytes)');
+          resumed++;
+        } else {
+          appLogger.w('Resume enqueue returned false for ${row.globalKey}');
+        }
+      } catch (e) {
+        appLogger.w('Resume failed for ${row.globalKey}', error: e);
+      }
+    }
+    return resumed;
+  }
+
   /// Recover downloads that were interrupted when the app was killed.
   /// Uses background_downloader's rescheduleKilledTasks for native recovery,
   /// then scans drift for orphaned items.
@@ -834,6 +1001,16 @@ class DownloadManagerService {
       }
       unawaited(Sentry.addBreadcrumb(Breadcrumb(message: 'Initializing FileDownloader', category: 'downloads')));
       await _initializeFileDownloader();
+
+      // Reconstruct resume data for interrupted downloads BEFORE the orphan
+      // sweep and reschedule: a killed download has no resume data, so the
+      // orphan cleanup deletes its .part and rescheduleKilledTasks() starts
+      // it fresh. Rebuilding ResumeData makes the native side resume with
+      // Range from the partial instead of truncating to zero.
+      final recoveredResume = await _resumeInterruptedPartials();
+      if (recoveredResume > 0) {
+        appLogger.i('Resumed $recoveredResume interrupted download(s) from partial');
+      }
 
       final deletedTempFiles = await FileDownloader().cleanUpOrphanedTempFiles();
       if (deletedTempFiles > 0) {
@@ -925,6 +1102,24 @@ class DownloadManagerService {
       }
     } catch (e) {
       appLogger.e('Failed to recover interrupted downloads', error: e);
+    }
+  }
+
+  Future<String?> _httpHead(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      final client = http.Client();
+      try {
+        final req = http.Request('HEAD', uri);
+        final streamed = await client.send(req);
+        await streamed.stream.drain<void>();
+        return streamed.headers['etag'];
+      } finally {
+        client.close();
+      }
+    } catch (e) {
+      appLogger.w('HEAD failed for $url', error: e);
+      return null;
     }
   }
 
@@ -1579,14 +1774,15 @@ class DownloadManagerService {
   /// Cancel any lingering background task and reset progress before re-enqueuing.
   Future<void> _cleanupStaleDownload(String globalKey) async {
     final existingTaskId = await _database.getBgTaskId(globalKey);
-    await _database.updateBgTaskId(globalKey, null);
+    // Keep the taskId AND the .part on disk: the retry re-enqueues with the
+    // same taskId so the partial name matches and the native side resumes.
+    // Clearing bgTaskId would orphan the partial's association.
     _pendingDownloadContext.remove(globalKey);
     await _cancelNativeTasksForGlobalKey(
       globalKey,
       includeTaskId: existingTaskId,
       reason: 'stale task before re-download',
     );
-    await _database.updateDownloadProgress(globalKey, 0, 0, 0);
   }
 
   Future<void> _requeueDownload(String globalKey, {MediaServerClient? fallbackClient}) async {
@@ -1732,39 +1928,75 @@ class DownloadManagerService {
 
       MediaItem? metadata = await _lookupMetadata(serverId, ratingKey, clientScopeId: existing.clientScopeId);
       if (metadata == null) {
-        // Cache miss — try re-fetching from server (cache may have been cleared between queue and prepare)
+        // Cache miss — try re-fetching from server (cache may have been cleared between queue and prepare).
+        // Retry transient network failures (DNS/connection blips) with a short backoff.
         appLogger.w('Cache miss for $globalKey, attempting network re-fetch');
-        try {
-          final fetched = await client.fetchItem(ratingKey);
-          if (fetched != null) metadata = fetched.copyWith(serverId: serverId);
-        } catch (e) {
-          appLogger.w('Network re-fetch failed for $globalKey', error: e);
+        for (var attempt = 0; attempt < 3 && metadata == null; attempt++) {
+          try {
+            final fetched = await client.fetchItem(ratingKey);
+            if (fetched != null) metadata = fetched.copyWith(serverId: serverId);
+          } catch (e) {
+            appLogger.w('Network re-fetch attempt ${attempt + 1}/3 failed for $globalKey', error: e);
+            if (attempt < 2) await Future<void>.delayed(Duration(seconds: 2 * (attempt + 1)));
+          }
         }
         if (metadata == null) {
-          throw Exception('Metadata not found in cache and could not be fetched for $globalKey');
+          // Metadata unreachable (flaky mobile DNS for the meta addon). Don't
+          // block the download: build a minimal item from the key. Streams are
+          // re-fetched by resolveDownload directly, so a URL still resolves;
+          // the offline-pin backfills real metadata later.
+          appLogger.w('Metadata unavailable for $globalKey, continuing with minimal item');
+          final kind = ratingKey.startsWith('series') || ratingKey.startsWith('episode')
+              ? MediaKind.show
+              : MediaKind.movie;
+          metadata = MediaItem(
+            id: ratingKey,
+            backend: client.backend,
+            kind: kind,
+            title: ratingKey,
+            serverId: serverId.toString(),
+          );
         }
       }
 
       final selectedMediaIndex = existing.mediaIndex;
-      var resolution = await client.resolveDownload(
-        metadata,
-        mediaIndex: selectedMediaIndex,
-        mediaSourceId: existing.mediaSourceId,
-      );
-      if (resolution.videoUrl == null) {
-        // Cache miss for the per-version fields — refresh from network.
-        appLogger.w('No video URL from cache for $globalKey, retrying via network');
-        final fetched = await client.fetchItem(ratingKey);
-        if (fetched != null) metadata = fetched.copyWith(serverId: serverId);
+      late DownloadResolution resolution;
+      // Prefer the cached resolved URL (stable resume); only re-resolve when
+      // it's missing (first attempt or after explicit delete).
+      if (existing.resolvedUrl != null && existing.resolvedUrl!.isNotEmpty) {
+        appLogger.i('Using cached resolved URL for $globalKey');
+        resolution = DownloadResolution(videoUrl: existing.resolvedUrl);
+      } else {
         resolution = await client.resolveDownload(
           metadata,
           mediaIndex: selectedMediaIndex,
           mediaSourceId: existing.mediaSourceId,
         );
-        if (resolution.videoUrl == null) throw Exception('Could not get video URL for $globalKey');
+        if (resolution.videoUrl == null) {
+          // Cache miss for the per-version fields — refresh from network.
+          appLogger.w('No video URL from cache for $globalKey, retrying via network');
+          final fetched = await client.fetchItem(ratingKey);
+          if (fetched != null) metadata = fetched.copyWith(serverId: serverId);
+          resolution = await client.resolveDownload(
+            metadata,
+            mediaIndex: selectedMediaIndex,
+            mediaSourceId: existing.mediaSourceId,
+          );
+          if (resolution.videoUrl == null) throw Exception('Could not get video URL for $globalKey');
+        }
       }
       if (resolution.mediaSourceId != null && resolution.mediaSourceId != existing.mediaSourceId) {
         await _database.updateDownloadMediaSource(globalKey, resolution.mediaSourceId);
+      }
+      // Persist the resolved URL so a re-queue resumes the same link (the
+      // debrid direct link supports Range resume; a freshly resolved URL is
+      // treated as a new download by the engine).
+      if (resolution.videoUrl != null) {
+        try {
+          await _database.updateDownloadResolvedUrl(globalKey, resolution.videoUrl!);
+        } catch (e) {
+          appLogger.w('Failed to persist resolved URL for $globalKey', error: e);
+        }
       }
 
       if (await _isCancelledOrDeleted(globalKey)) {
@@ -1875,16 +2107,31 @@ class DownloadManagerService {
           downloadFilePath = await _storageService.getVideoFilePath(serverId, metadata.id, ext);
         }
 
-        // Clean up partial files from previous attempts to prevent
-        // background_downloader from creating numbered copies (File (1).mp4).
-        await Future.wait([
-          _deleteFileIfExists(File(downloadFilePath), 'stale video before re-download'),
-          _deleteFileIfExists(File('$downloadFilePath.part'), 'stale .part before re-download'),
-        ]);
+        // Only delete stale files on a fresh download. When resuming a cached
+        // URL, keep the partial so background_downloader can continue from it.
+        final resuming = existing.resolvedUrl != null && existing.resolvedUrl!.isNotEmpty;
+        await _deleteFileIfExists(File(downloadFilePath), 'stale video before re-download');
+        if (!resuming) {
+          // Hashed partial name (fork) + legacy. Delete both; on a fresh
+          // download neither should exist, but a prior attempt's partial
+          // (named by its own taskId) may linger.
+          if (existing.bgTaskId != null && existing.bgTaskId!.isNotEmpty) {
+            await _deleteFileIfExists(
+              File(_partialFilePath(downloadFilePath, existing.bgTaskId!)),
+              'stale hashed .part before re-download',
+            );
+          }
+          await _deleteFileIfExists(File('$downloadFilePath.part'), 'stale legacy .part before re-download');
+        }
 
         await File(downloadFilePath).parent.create(recursive: true);
 
+        // Reuse the previous taskId when present so the native auto-resume
+        // finds the existing partial (named by taskId) and continues instead
+        // of truncating. A fresh taskId would ignore the old partial.
+        final resumeTaskId = existing.bgTaskId;
         final task = DownloadTask(
+          taskId: resumeTaskId,
           url: resolution.videoUrl!,
           filename: path.basename(downloadFilePath),
           directory: path.dirname(downloadFilePath),
@@ -2053,11 +2300,13 @@ class DownloadManagerService {
         case TaskStatus.complete:
           await _onDownloadComplete(globalKey, update.task);
         case TaskStatus.failed:
+          if (await _ignoreStatusDuringRecovery(globalKey, update.task.taskId)) break;
           await _onDownloadFailed(globalKey, update.task.taskId, update.exception);
         case TaskStatus.notFound:
           await _onDownloadPermanentlyFailed(globalKey, update.task.taskId, 'File not found (404)');
         case TaskStatus.canceled:
           if (_pausingKeys.contains(globalKey) || _cancellingKeys.contains(globalKey)) break;
+          if (await _ignoreStatusDuringRecovery(globalKey, update.task.taskId)) break;
           await _onDownloadCanceled(globalKey, update.task.taskId);
         case TaskStatus.paused:
           appLogger.d('Download paused by system for $globalKey');
@@ -2077,6 +2326,19 @@ class DownloadManagerService {
     } catch (e) {
       appLogger.e('Error handling download status change for $globalKey', error: e);
     }
+  }
+
+  /// Returns true when a failed/canceled status event should be ignored
+  /// because it arrived during the post-restart recovery window for the key.
+  /// The recovery cancels the leftover WorkManager work and re-enqueues the
+  /// SAME taskId, so a failed/canceled event in this window is the old
+  /// worker's death rattle, not the download.
+  Future<bool> _ignoreStatusDuringRecovery(String globalKey, String taskId) async {
+    if (!_recoveringKeys.contains(globalKey)) return false;
+    final existing = await _database.getDownloadedMedia(globalKey);
+    if (existing == null || existing.status != DownloadStatus.downloading.index) return false;
+    appLogger.d('Ignoring stale status during recovery for $globalKey');
+    return true;
   }
 
   /// Handle a system-initiated cancel — re-queue unless already completed.
@@ -2911,19 +3173,34 @@ class DownloadManagerService {
       final gk = buildGlobalKey(ServerId(serverId), ratingKey);
       final downloadRecord = await _database.getDownloadedMedia(gk);
       final scopeId = clientScopeId ?? downloadRecord?.clientScopeId;
-      final metadata = await _lookupMetadata(serverId, ratingKey, clientScopeId: scopeId);
+      MediaItem? metadata = await _lookupMetadata(serverId, ratingKey, clientScopeId: scopeId);
 
       if (metadata == null) {
-        // Fallback: Try database record
+        // Fallback 1: database record has a file path — delete by path.
         if (downloadRecord?.videoFilePath != null) {
           await _deleteByFilePath(downloadRecord!);
           return;
         }
-        appLogger.w('Cannot delete - no metadata for $gk');
-        return;
+        // Fallback 2: try fetching metadata from the network once.
+        final deleteClient = await _getClientForDownloadKey(gk);
+        if (deleteClient != null) {
+          try {
+            final fetched = await deleteClient.fetchItem(ratingKey);
+            if (fetched != null) {
+              metadata = fetched.copyWith(serverId: serverId);
+            }
+          } catch (e) {
+            appLogger.w('Delete: network metadata fetch failed for $gk', error: e);
+          }
+        }
+        if (metadata == null) {
+          appLogger.w('Cannot delete - no metadata for $gk');
+          return;
+        }
       }
 
-      switch (metadata.kind) {
+      final nonNullMetadata = metadata;
+      switch (nonNullMetadata.kind) {
         case MediaKind.episode:
           await _deleteEpisodeFiles(metadata, serverId, clientScopeId: scopeId);
           break;
@@ -2944,24 +3221,24 @@ class DownloadManagerService {
           break;
         case MediaKind.album:
           await _deleteTracksInContainer(
-            tracks: await _database.getTracksByAlbum(metadata.id, serverId: serverId),
+            tracks: await _database.getTracksByAlbum(nonNullMetadata.id, serverId: serverId),
             serverId: serverId,
             clientScopeId: scopeId,
-            containerKey: metadata.id,
-            containerTitle: metadata.displayTitle,
+            containerKey: nonNullMetadata.id,
+            containerTitle: nonNullMetadata.displayTitle,
           );
           break;
         case MediaKind.artist:
           await _deleteTracksInContainer(
-            tracks: await _database.getTracksByArtist(metadata.id, serverId: serverId),
+            tracks: await _database.getTracksByArtist(nonNullMetadata.id, serverId: serverId),
             serverId: serverId,
             clientScopeId: scopeId,
-            containerKey: metadata.id,
-            containerTitle: metadata.displayTitle,
+            containerKey: nonNullMetadata.id,
+            containerTitle: nonNullMetadata.displayTitle,
           );
           break;
         default:
-          appLogger.w('Unknown type for deletion: ${metadata.kind.id}');
+          appLogger.w('Unknown type for deletion: ${nonNullMetadata.kind.id}');
       }
     } catch (e, stack) {
       appLogger.e('Error deleting files', error: e, stackTrace: stack);

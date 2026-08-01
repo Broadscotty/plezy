@@ -243,6 +243,17 @@ class $DownloadedMediaTable extends DownloadedMedia
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _resolvedUrlMeta = const VerificationMeta(
+    'resolvedUrl',
+  );
+  @override
+  late final GeneratedColumn<String> resolvedUrl = GeneratedColumn<String>(
+    'resolved_url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -266,6 +277,7 @@ class $DownloadedMediaTable extends DownloadedMedia
     bgTaskId,
     mediaIndex,
     mediaSourceId,
+    resolvedUrl,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -439,6 +451,15 @@ class $DownloadedMediaTable extends DownloadedMedia
         ),
       );
     }
+    if (data.containsKey('resolved_url')) {
+      context.handle(
+        _resolvedUrlMeta,
+        resolvedUrl.isAcceptableOrUnknown(
+          data['resolved_url']!,
+          _resolvedUrlMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -532,6 +553,10 @@ class $DownloadedMediaTable extends DownloadedMedia
         DriftSqlType.string,
         data['${effectivePrefix}media_source_id'],
       ),
+      resolvedUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}resolved_url'],
+      ),
     );
   }
 
@@ -564,6 +589,11 @@ class DownloadedMediaItem extends DataClass
   final String? bgTaskId;
   final int mediaIndex;
   final String? mediaSourceId;
+
+  /// Cached resolved download URL (Stremio/debrid direct links). Reused on
+  /// re-queue so resume keeps the same URL instead of resolving a new one
+  /// (which background_downloader treats as a fresh download).
+  final String? resolvedUrl;
   const DownloadedMediaItem({
     required this.id,
     required this.serverId,
@@ -586,6 +616,7 @@ class DownloadedMediaItem extends DataClass
     this.bgTaskId,
     required this.mediaIndex,
     this.mediaSourceId,
+    this.resolvedUrl,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -632,6 +663,9 @@ class DownloadedMediaItem extends DataClass
     map['media_index'] = Variable<int>(mediaIndex);
     if (!nullToAbsent || mediaSourceId != null) {
       map['media_source_id'] = Variable<String>(mediaSourceId);
+    }
+    if (!nullToAbsent || resolvedUrl != null) {
+      map['resolved_url'] = Variable<String>(resolvedUrl);
     }
     return map;
   }
@@ -681,6 +715,9 @@ class DownloadedMediaItem extends DataClass
       mediaSourceId: mediaSourceId == null && nullToAbsent
           ? const Value.absent()
           : Value(mediaSourceId),
+      resolvedUrl: resolvedUrl == null && nullToAbsent
+          ? const Value.absent()
+          : Value(resolvedUrl),
     );
   }
 
@@ -713,6 +750,7 @@ class DownloadedMediaItem extends DataClass
       bgTaskId: serializer.fromJson<String?>(json['bgTaskId']),
       mediaIndex: serializer.fromJson<int>(json['mediaIndex']),
       mediaSourceId: serializer.fromJson<String?>(json['mediaSourceId']),
+      resolvedUrl: serializer.fromJson<String?>(json['resolvedUrl']),
     );
   }
   @override
@@ -740,6 +778,7 @@ class DownloadedMediaItem extends DataClass
       'bgTaskId': serializer.toJson<String?>(bgTaskId),
       'mediaIndex': serializer.toJson<int>(mediaIndex),
       'mediaSourceId': serializer.toJson<String?>(mediaSourceId),
+      'resolvedUrl': serializer.toJson<String?>(resolvedUrl),
     };
   }
 
@@ -765,6 +804,7 @@ class DownloadedMediaItem extends DataClass
     Value<String?> bgTaskId = const Value.absent(),
     int? mediaIndex,
     Value<String?> mediaSourceId = const Value.absent(),
+    Value<String?> resolvedUrl = const Value.absent(),
   }) => DownloadedMediaItem(
     id: id ?? this.id,
     serverId: serverId ?? this.serverId,
@@ -797,6 +837,7 @@ class DownloadedMediaItem extends DataClass
     mediaSourceId: mediaSourceId.present
         ? mediaSourceId.value
         : this.mediaSourceId,
+    resolvedUrl: resolvedUrl.present ? resolvedUrl.value : this.resolvedUrl,
   );
   DownloadedMediaItem copyWithCompanion(DownloadedMediaCompanion data) {
     return DownloadedMediaItem(
@@ -845,6 +886,9 @@ class DownloadedMediaItem extends DataClass
       mediaSourceId: data.mediaSourceId.present
           ? data.mediaSourceId.value
           : this.mediaSourceId,
+      resolvedUrl: data.resolvedUrl.present
+          ? data.resolvedUrl.value
+          : this.resolvedUrl,
     );
   }
 
@@ -871,7 +915,8 @@ class DownloadedMediaItem extends DataClass
           ..write('retryCount: $retryCount, ')
           ..write('bgTaskId: $bgTaskId, ')
           ..write('mediaIndex: $mediaIndex, ')
-          ..write('mediaSourceId: $mediaSourceId')
+          ..write('mediaSourceId: $mediaSourceId, ')
+          ..write('resolvedUrl: $resolvedUrl')
           ..write(')'))
         .toString();
   }
@@ -899,6 +944,7 @@ class DownloadedMediaItem extends DataClass
     bgTaskId,
     mediaIndex,
     mediaSourceId,
+    resolvedUrl,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -924,7 +970,8 @@ class DownloadedMediaItem extends DataClass
           other.retryCount == this.retryCount &&
           other.bgTaskId == this.bgTaskId &&
           other.mediaIndex == this.mediaIndex &&
-          other.mediaSourceId == this.mediaSourceId);
+          other.mediaSourceId == this.mediaSourceId &&
+          other.resolvedUrl == this.resolvedUrl);
 }
 
 class DownloadedMediaCompanion extends UpdateCompanion<DownloadedMediaItem> {
@@ -949,6 +996,7 @@ class DownloadedMediaCompanion extends UpdateCompanion<DownloadedMediaItem> {
   final Value<String?> bgTaskId;
   final Value<int> mediaIndex;
   final Value<String?> mediaSourceId;
+  final Value<String?> resolvedUrl;
   const DownloadedMediaCompanion({
     this.id = const Value.absent(),
     this.serverId = const Value.absent(),
@@ -971,6 +1019,7 @@ class DownloadedMediaCompanion extends UpdateCompanion<DownloadedMediaItem> {
     this.bgTaskId = const Value.absent(),
     this.mediaIndex = const Value.absent(),
     this.mediaSourceId = const Value.absent(),
+    this.resolvedUrl = const Value.absent(),
   });
   DownloadedMediaCompanion.insert({
     this.id = const Value.absent(),
@@ -994,6 +1043,7 @@ class DownloadedMediaCompanion extends UpdateCompanion<DownloadedMediaItem> {
     this.bgTaskId = const Value.absent(),
     this.mediaIndex = const Value.absent(),
     this.mediaSourceId = const Value.absent(),
+    this.resolvedUrl = const Value.absent(),
   }) : serverId = Value(serverId),
        ratingKey = Value(ratingKey),
        globalKey = Value(globalKey),
@@ -1021,6 +1071,7 @@ class DownloadedMediaCompanion extends UpdateCompanion<DownloadedMediaItem> {
     Expression<String>? bgTaskId,
     Expression<int>? mediaIndex,
     Expression<String>? mediaSourceId,
+    Expression<String>? resolvedUrl,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1045,6 +1096,7 @@ class DownloadedMediaCompanion extends UpdateCompanion<DownloadedMediaItem> {
       if (bgTaskId != null) 'bg_task_id': bgTaskId,
       if (mediaIndex != null) 'media_index': mediaIndex,
       if (mediaSourceId != null) 'media_source_id': mediaSourceId,
+      if (resolvedUrl != null) 'resolved_url': resolvedUrl,
     });
   }
 
@@ -1070,6 +1122,7 @@ class DownloadedMediaCompanion extends UpdateCompanion<DownloadedMediaItem> {
     Value<String?>? bgTaskId,
     Value<int>? mediaIndex,
     Value<String?>? mediaSourceId,
+    Value<String?>? resolvedUrl,
   }) {
     return DownloadedMediaCompanion(
       id: id ?? this.id,
@@ -1093,6 +1146,7 @@ class DownloadedMediaCompanion extends UpdateCompanion<DownloadedMediaItem> {
       bgTaskId: bgTaskId ?? this.bgTaskId,
       mediaIndex: mediaIndex ?? this.mediaIndex,
       mediaSourceId: mediaSourceId ?? this.mediaSourceId,
+      resolvedUrl: resolvedUrl ?? this.resolvedUrl,
     );
   }
 
@@ -1164,6 +1218,9 @@ class DownloadedMediaCompanion extends UpdateCompanion<DownloadedMediaItem> {
     if (mediaSourceId.present) {
       map['media_source_id'] = Variable<String>(mediaSourceId.value);
     }
+    if (resolvedUrl.present) {
+      map['resolved_url'] = Variable<String>(resolvedUrl.value);
+    }
     return map;
   }
 
@@ -1190,7 +1247,8 @@ class DownloadedMediaCompanion extends UpdateCompanion<DownloadedMediaItem> {
           ..write('retryCount: $retryCount, ')
           ..write('bgTaskId: $bgTaskId, ')
           ..write('mediaIndex: $mediaIndex, ')
-          ..write('mediaSourceId: $mediaSourceId')
+          ..write('mediaSourceId: $mediaSourceId, ')
+          ..write('resolvedUrl: $resolvedUrl')
           ..write(')'))
         .toString();
   }
@@ -5965,6 +6023,7 @@ typedef $$DownloadedMediaTableCreateCompanionBuilder =
       Value<String?> bgTaskId,
       Value<int> mediaIndex,
       Value<String?> mediaSourceId,
+      Value<String?> resolvedUrl,
     });
 typedef $$DownloadedMediaTableUpdateCompanionBuilder =
     DownloadedMediaCompanion Function({
@@ -5989,6 +6048,7 @@ typedef $$DownloadedMediaTableUpdateCompanionBuilder =
       Value<String?> bgTaskId,
       Value<int> mediaIndex,
       Value<String?> mediaSourceId,
+      Value<String?> resolvedUrl,
     });
 
 class $$DownloadedMediaTableFilterComposer
@@ -6102,6 +6162,11 @@ class $$DownloadedMediaTableFilterComposer
 
   ColumnFilters<String> get mediaSourceId => $composableBuilder(
     column: $table.mediaSourceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get resolvedUrl => $composableBuilder(
+    column: $table.resolvedUrl,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -6219,6 +6284,11 @@ class $$DownloadedMediaTableOrderingComposer
     column: $table.mediaSourceId,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get resolvedUrl => $composableBuilder(
+    column: $table.resolvedUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$DownloadedMediaTableAnnotationComposer
@@ -6316,6 +6386,11 @@ class $$DownloadedMediaTableAnnotationComposer
     column: $table.mediaSourceId,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get resolvedUrl => $composableBuilder(
+    column: $table.resolvedUrl,
+    builder: (column) => column,
+  );
 }
 
 class $$DownloadedMediaTableTableManager
@@ -6376,6 +6451,7 @@ class $$DownloadedMediaTableTableManager
                 Value<String?> bgTaskId = const Value.absent(),
                 Value<int> mediaIndex = const Value.absent(),
                 Value<String?> mediaSourceId = const Value.absent(),
+                Value<String?> resolvedUrl = const Value.absent(),
               }) => DownloadedMediaCompanion(
                 id: id,
                 serverId: serverId,
@@ -6398,6 +6474,7 @@ class $$DownloadedMediaTableTableManager
                 bgTaskId: bgTaskId,
                 mediaIndex: mediaIndex,
                 mediaSourceId: mediaSourceId,
+                resolvedUrl: resolvedUrl,
               ),
           createCompanionCallback:
               ({
@@ -6422,6 +6499,7 @@ class $$DownloadedMediaTableTableManager
                 Value<String?> bgTaskId = const Value.absent(),
                 Value<int> mediaIndex = const Value.absent(),
                 Value<String?> mediaSourceId = const Value.absent(),
+                Value<String?> resolvedUrl = const Value.absent(),
               }) => DownloadedMediaCompanion.insert(
                 id: id,
                 serverId: serverId,
@@ -6444,6 +6522,7 @@ class $$DownloadedMediaTableTableManager
                 bgTaskId: bgTaskId,
                 mediaIndex: mediaIndex,
                 mediaSourceId: mediaSourceId,
+                resolvedUrl: resolvedUrl,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

@@ -43,7 +43,22 @@ extension _MediaDetailActionButtons on _MediaDetailScreenState {
         }
       } else {
         appLogger.d('Playing: ${metadata.title}');
-        // For movies or episodes, play directly
+        // For movies/episodes, offer the stream list before playing when the
+        // item has multiple versions (Stremio streams, multi-version files).
+        final versions = _fullMetadata?.mediaVersions ?? metadata.mediaVersions;
+        if (versions != null && versions.length > 1) {
+          final selectedIndex = await showVersionPickerDialog(context, versions, t.downloads.selectVersion);
+          if (selectedIndex == null || !mounted) return;
+          await navigateToVideoPlayerWithRefresh(
+            context,
+            metadata: metadata,
+            isOffline: widget.isOffline,
+            onRefresh: _loadFullMetadata,
+            selectedMediaIndex: selectedIndex,
+            selectedMediaSourceId: versions[selectedIndex].id,
+          );
+          return;
+        }
         await navigateToVideoPlayerWithRefresh(
           context,
           metadata: metadata,

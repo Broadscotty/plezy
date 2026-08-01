@@ -72,3 +72,7 @@ maestro/**/*.png
 
 server/deploy.sh
 server/Caddyfile
+
+# Local artifacts
+*.apk
+local.properties.bak

@@ -549,6 +549,12 @@ extension DownloadDatabaseOperations on AppDatabase {
     );
   }
 
+  Future<void> updateDownloadResolvedUrl(String globalKey, String? resolvedUrl) async {
+    await (update(downloadedMedia)..where((t) => t.globalKey.equals(globalKey))).write(
+      DownloadedMediaCompanion(resolvedUrl: Value(resolvedUrl)),
+    );
+  }
+
   Future<void> updateDownloadProgress(String globalKey, int progress, int downloadedBytes, int totalBytes) async {
     await (update(downloadedMedia)..where((t) => t.globalKey.equals(globalKey))).write(
       DownloadedMediaCompanion(

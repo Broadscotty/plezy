@@ -64,9 +64,7 @@ dependencies:
   # and playback behavior inconsistent. Revisit only with an explicit,
   # host-scoped trust setting shared by every media-server HTTP client.
   background_downloader:
-    git:
-      url: https://github.com/edde746/background_downloader
-      ref: 021e2075260e324b7440a5c81b57bf0242d35020
+    path: third_party/background_downloader
   sentry_flutter: ^9.25.0
   auto_updater:
     git:

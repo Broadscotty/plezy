@@ -68,8 +68,45 @@ abstract class LibraryAlphaBarStrategy {
         isShared: isShared,
       ),
       MediaBackend.jellyfin => const JellyfinAlphaBarStrategy(),
+      MediaBackend.debrid => const NoneAlphaBarStrategy(),
     };
   }
+}
+
+/// No-op strategy for backends without an alpha bar (`AlphaBarMode.none`,
+/// e.g. debrid). [shouldShow] always returns false; every other method is
+/// unreachable through normal UI flow since the bar is never rendered.
+class NoneAlphaBarStrategy implements LibraryAlphaBarStrategy {
+  const NoneAlphaBarStrategy();
+
+  @override
+  bool shouldShow({
+    required int totalItemCount,
+    required int loadedCharacterCount,
+    required String? sortKey,
+    required bool isFolderGrouping,
+    required String? jellyfinAlphaPrefix,
+    required bool isPhone,
+  }) => false;
+
+  @override
+  Future<({List<LibraryFirstCharacter> chars, AlphaJumpHelper helper})> loadCharacters({
+    required Map<String, String> filters,
+    required int? typeId,
+    required bool descending,
+  }) async => (chars: const <LibraryFirstCharacter>[], helper: AlphaJumpHelper(const []));
+
+  @override
+  String currentLetter(int index, AlphaJumpHelper helper, {String? jellyfinAlphaPrefix}) => '';
+
+  @override
+  void onLetterPressed(
+    int targetIndex,
+    AlphaJumpHelper helper, {
+    required String? currentJellyfinPrefix,
+    required void Function(int index) onPlexJump,
+    required void Function(String? nextPrefix) onJellyfinPrefixChange,
+  }) {}
 }
 
 /// Plex strategy — calls `/library/sections/{id}/firstCharacter` for real

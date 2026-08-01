@@ -39,7 +39,7 @@ class AppDurations {
 }
 
 class GridLayoutConstants {
-  static const double posterAspectRatio = 2 / 3.3;
+  static const double posterAspectRatio = 2 / 3.4;
 
   static const double fullCardPosterAspectRatio = 2 / 3;
 
@@ -53,7 +53,7 @@ class GridLayoutConstants {
 
   /// Square grid cell: 1:1 image plus the same text band the poster cell
   /// reserves ([posterAspectRatio] adds 0.3 to the 2:3 image's denominator).
-  static const double squareGridCellAspectRatio = 2 / 2.3;
+  static const double squareGridCellAspectRatio = 2 / 2.4;
 
   static const double crossAxisSpacing = 0;
   static const double mainAxisSpacing = 0;

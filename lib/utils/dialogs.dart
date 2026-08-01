@@ -359,6 +359,11 @@ class _OptionPickerDialogState<T> extends State<_OptionPickerDialog<T>> {
       constraints: const BoxConstraints(minWidth: 304),
       contentPadding: const EdgeInsets.symmetric(vertical: 8),
       children: [
+        Flexible(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
         if (toggle != null)
           MergeSemantics(
             child: FocusableListTile(
@@ -406,6 +411,10 @@ class _OptionPickerDialogState<T> extends State<_OptionPickerDialog<T>> {
             },
           );
         }),
+                    ],
+            ),
+          ),
+        ),
       ],
     );
   }

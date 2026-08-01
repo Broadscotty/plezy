@@ -253,6 +253,8 @@ class _BorrowConnectionScreenState extends State<BorrowConnectionScreen> {
           await _borrowPlex(cand);
         case JellyfinConnection():
           await _borrowJellyfin(cand);
+        case DebridConnection():
+          appLogger.w('Borrow requested for a debrid connection; not supported, ignoring');
       }
     } catch (e, st) {
       // Without this, a throw from the verify/borrow steps (network, DB)

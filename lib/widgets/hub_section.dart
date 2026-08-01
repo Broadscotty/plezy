@@ -522,7 +522,7 @@ class HubSectionState extends State<HubSection> with MountedSetStateMixin, Skele
                         ? posterWidth // 1:1 for music artwork
                         : posterWidth * 1.5; // 2:3 for poster layout
 
-                    final containerHeight = posterHeight + (isTv ? 48 : 33);
+                    final containerHeight = posterHeight + (isTv ? 54 : 39);
                     final focusBorderWidth = FocusTheme.focusBorderWidth;
                     final focusExtra = focusBorderWidth * 2; // border on both sides
                     _itemExtent = cardWidth + focusExtra + 4;

@@ -36,7 +36,9 @@ class NavigationTab {
     return allNavigationTabs.where((tab) {
       if (isOffline && tab.onlineOnly) return false;
       if (tab.id == NavigationTabId.liveTv && !hasLiveTv) return false;
-      if (tab.id == NavigationTabId.explore && !hasExplore) return false;
+      // Explore tab disabled: hidden unconditionally regardless of connected
+      // catalog sources (Trakt/MAL/AniList/Simkl/Seerr).
+      if (tab.id == NavigationTabId.explore) return false;
       if (tab.id == NavigationTabId.downloads && PlatformDetector.isAppleTV()) return false;
       return true;
     }).toList();

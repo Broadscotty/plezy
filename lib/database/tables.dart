@@ -61,6 +61,10 @@ class DownloadedMedia extends Table {
   TextColumn get bgTaskId => text().nullable()();
   IntColumn get mediaIndex => integer().withDefault(const Constant(0))();
   TextColumn get mediaSourceId => text().nullable()();
+  /// Cached resolved download URL (Stremio/debrid direct links). Reused on
+  /// re-queue so resume keeps the same URL instead of resolving a new one
+  /// (which background_downloader treats as a fresh download).
+  TextColumn get resolvedUrl => text().nullable()();
 }
 
 /// Profile ownership for shared physical downloads.
