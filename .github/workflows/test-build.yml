@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
         with:
           ref: ${{ inputs.branch }}
 
@@ -35,7 +35,7 @@ jobs:
         run: flutter build apk --release --split-per-abi --dart-define=ENABLE_UPDATE_CHECK=true
 
       - name: Upload APKs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: test-android-apk
           path: build/app/outputs/flutter-apk/*.apk
