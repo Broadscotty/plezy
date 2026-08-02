@@ -807,7 +807,10 @@ class DownloadManagerService {
         );
 
     // Plex servers can reject concurrent media downloads.
-    await FileDownloader().configure(globalConfig: (Config.holdingQueue, (1, 1, 1)));
+    await FileDownloader().configure(
+      globalConfig: (Config.holdingQueue, (1, 1, 1)),
+      androidConfig: [(Config.runInForegroundIfFileLargerThan, 20)],
+    );
 
     await FileDownloader().trackTasks();
     // Deliver status updates from iOS background-to-foreground transitions
