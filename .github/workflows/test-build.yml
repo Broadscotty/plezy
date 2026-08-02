@@ -19,8 +19,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
         with:
-          ref: ${{ inputs.branch }}
+          java-version: '17'
+          distribution: 'temurin'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
