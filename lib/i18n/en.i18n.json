@@ -1625,7 +1625,7 @@
     "debridAddonUrl": "Addon URL",
     "debridAddonUrlHelper": "The base URL of a Stremio addon (e.g. a Torrentio-style catalog/stream addon).",
     "debridApiToken": "Real-Debrid API token",
-    "debridApiTokenHelper": "From real-debrid.com/apitoken.",
+    "debridApiTokenHelper": "Optional -- leave blank if your addon URL already includes it, or if the addon resolves Real-Debrid on its own. From real-debrid.com/apitoken.",
     "addDebridServer": "Add source",
     "borrowFromAnotherProfile": "Borrow from another profile",
     "borrowFromAnotherProfileSubtitle": "Reuse another profile's connection. PIN-protected profiles require a PIN."

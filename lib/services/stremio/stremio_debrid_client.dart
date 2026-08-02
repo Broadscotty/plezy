@@ -195,6 +195,7 @@ class StremioDebridClient extends MediaServerClient {
           title: catalog.type == 'series' ? 'TV Shows' : 'Movies',
           kind: catalog.type == 'series' ? MediaKind.show : MediaKind.movie,
           serverId: serverId.toString(),
+          serverName: 'Stremio',
         ),
     ];
   }
@@ -247,7 +248,13 @@ class StremioDebridClient extends MediaServerClient {
     if (meta == null) return null;
     final item = _mapPreviewToItem(meta);
     final versions = await _streamsToVersions(parsed.type, parsed.stremioId);
-    return versions.isEmpty ? item : item.copyWith(mediaVersions: versions);
+    final resolved = versions.isEmpty ? item : item.copyWith(mediaVersions: versions);
+    // Nothing else writes to the metadata cache for this backend -- without
+    // this, every downstream lookup (download completion, the Movies
+    // download section grouping by cached metadata, etc.) is a permanent
+    // cache miss.
+    await cache.put(serverId, id, resolved.toJson());
+    return resolved;
   }
 
   /// Map an item's candidate streams to [MediaVersion]s so Plezy's existing
@@ -272,7 +279,7 @@ class StremioDebridClient extends MediaServerClient {
     final meta = await _catalogAddon.fetchMeta(parsed.type, parsed.stremioId);
     final videos = meta?.videos;
     if (videos == null || videos.isEmpty) return const [];
-    return videos
+    final episodes = videos
         .map(
           (video) => MediaItem(
             id: StremioItemId(parsed.type, video.id).toString(),
@@ -291,6 +298,10 @@ class StremioDebridClient extends MediaServerClient {
           ),
         )
         .toList();
+    for (final episode in episodes) {
+      await cache.put(serverId, episode.id, episode.toJson());
+    }
+    return episodes;
   }
 
   @override

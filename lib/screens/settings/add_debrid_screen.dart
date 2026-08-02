@@ -38,6 +38,14 @@ class AddDebridScreen extends StatefulWidget {
 }
 
 class _AddDebridScreenState extends State<AddDebridScreen> with AsyncFormStateMixin, ControllerDisposerMixin {
+  /// Extracts a Real-Debrid token from a Torrentio-style config URL, e.g.
+  /// `.../debridoptions=nodownloadlinks|realdebrid=TOKEN/manifest.json`.
+  /// The token is bounded by `|`, `&`, or `/` (Torrentio's own separators)
+  /// or end of string.
+  static String? _extractRealDebridToken(String url) {
+    final match = RegExp(r'realdebrid=([^|&/]+)', caseSensitive: false).firstMatch(url);
+    return match?.group(1);
+  }
   late final _addonUrlController = createTextEditingController();
   late final _tokenController = createTextEditingController();
   final _addonUrlFocus = FocusNode(debugLabel: 'AddDebrid:AddonUrl');
@@ -56,7 +64,13 @@ class _AddDebridScreenState extends State<AddDebridScreen> with AsyncFormStateMi
   Future<void> _addServer() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     final addonUrl = _addonUrlController.text.trim();
-    final token = _tokenController.text.trim();
+    // Torrentio-style URLs embed the token directly (realdebrid=TOKEN in the
+    // config segment) -- use that if the field was left blank, so a single
+    // URL that already has it is enough on its own. Addons that resolve
+    // Real-Debrid server-side (e.g. AIOStreams) don't expose it this way and
+    // don't need it here at all -- an empty token is fine for those.
+    final typedToken = _tokenController.text.trim();
+    final token = typedToken.isNotEmpty ? typedToken : (_extractRealDebridToken(addonUrl) ?? '');
 
     await runAsync<void>(
       () async {
@@ -174,7 +188,6 @@ class _AddDebridScreenState extends State<AddDebridScreen> with AsyncFormStateMi
                       helperText: t.addServer.debridApiTokenHelper,
                       prefixIcon: const AppIcon(Symbols.key_rounded, fill: 1),
                     ),
-                    validator: (v) => v == null || v.trim().isEmpty ? t.addServer.required : null,
                   ),
                   const SizedBox(height: 16),
                   FocusableButton(
