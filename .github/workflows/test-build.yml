@@ -29,7 +29,6 @@ jobs:
         with:
           channel: "stable"
           flutter-version: "3.44.0"
-          cache: false
 
       - name: Install dependencies
         run: flutter pub get
@@ -38,7 +37,7 @@ jobs:
         run: flutter build apk --release --split-per-abi
 
       - name: Upload APKs
-        uses: actions/upload-artifact@5074232928a0e77e5e36e751a48a2749947c2755 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: test-android-apk
           path: build/app/outputs/flutter-apk/*.apk
