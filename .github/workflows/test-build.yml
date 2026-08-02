@@ -28,13 +28,14 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: "stable"
-          flutter-version: "3.19.5"
+          flutter-version: "3.44.0"
+          cache: false
 
       - name: Install dependencies
-        run: flutter pub get --enforce-lockfile --no-example
+        run: flutter pub get
 
       - name: Build APK
-        run: flutter build apk --release --split-per-abi --dart-define=ENABLE_UPDATE_CHECK=true
+        run: flutter build apk --release --split-per-abi
 
       - name: Upload APKs
         uses: actions/upload-artifact@5074232928a0e77e5e36e751a48a2749947c2755 # v4
