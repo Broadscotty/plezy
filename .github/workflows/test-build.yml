@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          ref: ${{ inputs.branch }}
 
       - name: Setup Java
         uses: actions/setup-java@v3
@@ -26,11 +28,10 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.22.0'
-          channel: 'stable'
+      - name: Install Flutter
+        run: |
+          git clone https://github.com/flutter/flutter.git --depth 1 --branch 3.22.0
+          echo "$PWD/flutter/bin" >> $GITHUB_PATH
 
       - name: Get dependencies
         run: flutter pub get
