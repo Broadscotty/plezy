@@ -1028,7 +1028,7 @@ class ActiveProfileBinder {
   }
 
   Future<_ProfileBindResult> _bindDebrid(DebridConnection conn, {required String profileId, required int generation}) async {
-    final ok = await serverManager.addDebridConnection(conn);
+    await serverManager.addDebridConnection(conn);
     if (!_isCurrentBind(profileId, generation)) {
       return _ProfileBindResult(visibleServerIds: const {}, expectedServerIds: {conn.id});
     }
