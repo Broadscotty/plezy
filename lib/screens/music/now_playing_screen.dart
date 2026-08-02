@@ -1076,14 +1076,21 @@ class _NowPlayingSeekBarState extends State<_NowPlayingSeekBar> {
 
   /// Return [pendingMs] until the live position stream catches up to within
   /// [_seekConfirmToleranceMs]; then clear the pending target and return null
-  /// so the stream value takes over. Mirrors DebouncedSeekAccumulator's
-  /// settle: the stream is throttled (~250ms) and async, so an immediate
-  /// release must not let a stale pre-seek event overwrite the committed
-  /// target.
+  /// so the stream value takes over. If the stream never confirms (e.g. the
+  /// native seek failed and rolled back), release after [_seekConfirmCeilingMs]
+  /// so the thumb doesn't stay pinned at a target playback can't reach.
+  /// Mirrors DebouncedSeekAccumulator's settle: the stream is throttled
+  /// (~250ms) and async, so an immediate release must not let a stale pre-seek
+  /// event overwrite the committed target.
   static const double _seekConfirmToleranceMs = 3000;
+  static const double _seekConfirmCeilingMs = 10000;
 
   double? _confirmSeekTarget(double pendingMs, double liveMs) {
     if ((pendingMs - liveMs).abs() <= _seekConfirmToleranceMs) {
+      _pendingSeekTargetMs = null;
+      return null;
+    }
+    if (liveMs > 0 && (pendingMs - liveMs).abs() > _seekConfirmCeilingMs) {
       _pendingSeekTargetMs = null;
       return null;
     }
