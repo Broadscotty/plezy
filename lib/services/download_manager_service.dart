@@ -472,6 +472,14 @@ class DownloadManagerService {
     if (backend == MediaBackend.plex) {
       return buildPlexProfileScopeId(serverId: serverId, profileId: activeProfileId);
     }
+    if (backend == MediaBackend.debrid) {
+      // Debrid has no profile/user scoping: the cache namespace IS the serverId
+      // (MediaServerClientScope.cacheServerId == serverId). Without this, every
+      // profile-scoped hydration path short-circuits for debrid, so pinned
+      // metadata is never read back after a restart and completed downloads
+      // vanish from the Movies/Shows/Manage tabs.
+      return serverId.toString();
+    }
     if (backend != MediaBackend.jellyfin) return null;
     final persisted = await JellyfinCacheResolver(_database).findProfileScopeId(serverId, activeProfileId);
     return persisted ?? activeClientScopeIdForServer(serverId);
@@ -583,6 +591,7 @@ class DownloadManagerService {
     return switch (row.kind) {
       'jellyfin' => MediaBackend.jellyfin,
       'plex' => MediaBackend.plex,
+      'debrid' => MediaBackend.debrid,
       _ => null,
     };
   }

@@ -394,8 +394,13 @@ class ActiveProfileBinder {
           expected.addAll(servers.map((server) => server.clientIdentifier));
         case JellyfinConnection(:final serverMachineId):
           expected.add(serverMachineId);
-        case DebridConnection():
-          break;
+        case DebridConnection(:final id):
+          // Count debrid sources as expected servers so a debrid-only profile
+          // isn't transiently reported offline during the bind window
+          // (expectedServerIds pre-seeds the provider before bind results
+          // land; without it, _hasKnownVisibleServers stays false until a
+          // server health probe succeeds).
+          expected.add(id);
         case null:
           break;
       }
@@ -1027,10 +1032,17 @@ class ActiveProfileBinder {
     if (!_isCurrentBind(profileId, generation)) {
       return _ProfileBindResult(visibleServerIds: const {}, expectedServerIds: {conn.id});
     }
-    if (ok) {
-      return _ProfileBindResult.visible({conn.id});
-    }
-    return _ProfileBindResult(visibleServerIds: const {}, expectedServerIds: {conn.id});
+    // Keep the debrid server in this profile's visible set regardless of the
+    // health probe outcome. addDebridConnection registers the client even when
+    // the probe fails (addon manifest is a remote fetch — transient timeout,
+    // DNS blip, or CDN hiccup should not nuke a user-configured source), and
+    // the bind sweep below removes any manager server not in the visible set.
+    // Dropping it here would take Stremio away whenever a rebind coincides
+    // with the addon being slow (e.g. app restart while Plex is offline).
+    // Mirrors _bindJellyfin, which keeps an unhealthy server visible.
+    // checkServerHealth re-probes the registered client and flips it online
+    // once the addon recovers — no user action required.
+    return _ProfileBindResult.visible({conn.id});
   }
 
   bool _isCurrentBind(String profileId, int generation) {

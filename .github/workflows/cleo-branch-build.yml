@@ -1,0 +1,81 @@
+name: Cleo Branch Build
+
+# Branch workflow for Cleo's bug-fix branches. Builds a sideload APK from any
+# `cleo/**` branch (or manual dispatch) and publishes it to the `cleo-latest`
+# GitHub Release so the phone has a stable direct-download URL:
+#   https://github.com/Broadscotty/plezy/releases/download/cleo-latest/plezy-arm64-v8a.apk
+#
+# Mirrors the main-branch `sideload-latest` pattern (same checked-in
+# sideload-debug.keystore, same applicationId com.edde746.plezy.sideload) so
+# installs update over each other without uninstalling first.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'cleo/**'
+
+env:
+  GIT_COMMIT_DART_DEFINE: --dart-define=GIT_COMMIT=${{ github.sha }}
+  DONATIONS_DART_DEFINE: --dart-define=ENABLE_DONATIONS=true
+
+jobs:
+  build-apk:
+    name: Build sideload APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: "stable"
+          flutter-version: "3.44.0"
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile --no-example
+
+      - name: Build APKs
+        run: |
+          flutter build apk --release --split-per-abi \
+            --dart-define=ENABLE_UPDATE_CHECK=true \
+            ${{ env.GIT_COMMIT_DART_DEFINE }} \
+            ${{ env.DONATIONS_DART_DEFINE }}
+
+      - name: Package APKs
+        run: |
+          mkdir -p release-assets
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk release-assets/plezy-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk release-assets/plezy-armeabi-v7a.apk
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk release-assets/plezy-x86_64.apk
+          ls -la release-assets
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cleo-android-apk
+          path: release-assets/
+
+      - name: Publish cleo-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete cleo-latest --yes --cleanup-tag --repo "${{ github.repository }}" || true
+          gh release create cleo-latest release-assets/*.apk \
+            --repo "${{ github.repository }}" \
+            --title "Cleo branch build (${{ github.ref_name }})" \
+            --notes "Automated sideload APK from Cleo's branch ${{ github.ref_name }} at commit ${{ github.sha }}. Debug-signed, applicationId com.edde746.plezy.sideload. Download plezy-arm64-v8a.apk directly on your phone." \
+            --latest
+
+      - name: Print direct download URL
+        run: |
+          echo "Direct APK URL: https://github.com/${{ github.repository }}/releases/download/cleo-latest/plezy-arm64-v8a.apk"

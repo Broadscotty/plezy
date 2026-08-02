@@ -1023,6 +1023,14 @@ class _NowPlayingSeekBarState extends State<_NowPlayingSeekBar> {
   double? _dragValueMs;
   bool _focused = false;
 
+  /// Position the user committed to via the slider but the (throttled,
+  /// asynchronously-delivered) position stream hasn't confirmed yet. While
+  /// non-null the thumb stays pinned to this target instead of snapping back
+  /// to the last stale stream event (which made in-app seeks feel broken
+  /// while lock-screen seeks — coalesced through MediaControlsManager's
+  /// leading-edge throttle — behaved correctly).
+  double? _pendingSeekTargetMs;
+
   int _seekRepeatCount = 0;
   LogicalKeyboardKey? _seekDirection;
   late final DebouncedSeekAccumulator _keySeek;
@@ -1051,6 +1059,7 @@ class _NowPlayingSeekBarState extends State<_NowPlayingSeekBar> {
     if (oldWidget.trackKey == widget.trackKey) return;
     _keySeek.cancel();
     _dragValueMs = null;
+    _pendingSeekTargetMs = null;
     _resetSeekState();
   }
 
@@ -1063,6 +1072,22 @@ class _NowPlayingSeekBarState extends State<_NowPlayingSeekBar> {
   void _resetSeekState() {
     _seekRepeatCount = 0;
     _seekDirection = null;
+  }
+
+  /// Return [pendingMs] until the live position stream catches up to within
+  /// [_seekConfirmToleranceMs]; then clear the pending target and return null
+  /// so the stream value takes over. Mirrors DebouncedSeekAccumulator's
+  /// settle: the stream is throttled (~250ms) and async, so an immediate
+  /// release must not let a stale pre-seek event overwrite the committed
+  /// target.
+  static const double _seekConfirmToleranceMs = 3000;
+
+  double? _confirmSeekTarget(double pendingMs, double liveMs) {
+    if ((pendingMs - liveMs).abs() <= _seekConfirmToleranceMs) {
+      _pendingSeekTargetMs = null;
+      return null;
+    }
+    return pendingMs;
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
@@ -1123,12 +1148,17 @@ class _NowPlayingSeekBarState extends State<_NowPlayingSeekBar> {
         final duration = service.duration ?? Duration.zero;
         final durationMs = duration.inMilliseconds.toDouble();
         final hasDuration = durationMs > 0;
-        final rawPositionMs =
-            _dragValueMs ??
-            _keySeek.pendingPosition?.inMilliseconds.toDouble() ??
+        final livePositionMs =
             (snapshot.data ?? service.position).inMilliseconds.toDouble();
+        // While dragging show the drag value; after release, keep showing the
+        // committed seek target until the (throttled) position stream
+        // confirms it, so the thumb doesn't snap back to a stale event.
+        final pendingSeek = _pendingSeekTargetMs;
+        final rawPositionMs = pendingSeek != null
+            ? _confirmSeekTarget(pendingSeek, livePositionMs) ?? pendingSeek
+            : _dragValueMs ?? _keySeek.pendingPosition?.inMilliseconds.toDouble() ?? livePositionMs;
         final positionMs = hasDuration ? rawPositionMs.clamp(0.0, durationMs) : 0.0;
-        final dragging = _dragValueMs != null;
+        final dragging = _dragValueMs != null || _pendingSeekTargetMs != null;
 
         return Column(
           mainAxisSize: .min,
@@ -1157,9 +1187,14 @@ class _NowPlayingSeekBarState extends State<_NowPlayingSeekBar> {
                 onChangeEnd: hasDuration
                     ? (value) {
                         if (service.currentTrack?.globalKey == widget.trackKey) {
+                          setState(() {
+                            _dragValueMs = null;
+                            _pendingSeekTargetMs = value;
+                          });
                           unawaited(service.seek(Duration(milliseconds: value.round())));
+                        } else {
+                          setState(() => _dragValueMs = null);
                         }
-                        setState(() => _dragValueMs = null);
                       }
                     : null,
               ),
