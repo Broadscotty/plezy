@@ -4404,8 +4404,8 @@ class Translations$addServer$en {
 	/// en: 'Real-Debrid API token'
 	String get debridApiToken => 'Real-Debrid API token';
 
-	/// en: 'From real-debrid.com/apitoken.'
-	String get debridApiTokenHelper => 'From real-debrid.com/apitoken.';
+	/// en: 'Optional -- leave blank if your addon URL already includes it, or if the addon resolves Real-Debrid on its own. From real-debrid.com/apitoken.'
+	String get debridApiTokenHelper => 'Optional -- leave blank if your addon URL already includes it, or if the addon resolves Real-Debrid on its own. From real-debrid.com/apitoken.';
 
 	/// en: 'Add source'
 	String get addDebridServer => 'Add source';
@@ -6682,7 +6682,7 @@ extension on Translations {
 			'addServer.debridAddonUrl' => 'Addon URL',
 			'addServer.debridAddonUrlHelper' => 'The base URL of a Stremio addon (e.g. a Torrentio-style catalog/stream addon).',
 			'addServer.debridApiToken' => 'Real-Debrid API token',
-			'addServer.debridApiTokenHelper' => 'From real-debrid.com/apitoken.',
+			'addServer.debridApiTokenHelper' => 'Optional -- leave blank if your addon URL already includes it, or if the addon resolves Real-Debrid on its own. From real-debrid.com/apitoken.',
 			'addServer.addDebridServer' => 'Add source',
 			'addServer.borrowFromAnotherProfile' => 'Borrow from another profile',
 			'addServer.borrowFromAnotherProfileSubtitle' => 'Reuse another profile\'s connection. PIN-protected profiles require a PIN.',
