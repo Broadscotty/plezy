@@ -455,7 +455,7 @@ class StremioDebridClient extends MediaServerClient {
             ? videos
             : videos.where((video) => video.season == split.season))
         .toList()
-      ..sort((a, b) => (a.index ?? 0).compareTo(b.index ?? 0));
+      ..sort((a, b) => (a.episode ?? 0).compareTo(b.episode ?? 0));
 
     final offset = start ?? 0;
     final pageSize = size ?? filtered.length;
