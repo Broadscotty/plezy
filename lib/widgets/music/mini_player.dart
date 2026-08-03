@@ -10,6 +10,7 @@ import '../../i18n/strings.g.dart';
 import '../../media/ids.dart';
 import '../../media/media_item.dart';
 import '../../mixins/context_menu_tap_mixin.dart';
+import '../../services/music/book_chapter_provider.dart';
 import '../../services/music/music_playback_service.dart';
 import '../../theme/mono_motion.dart';
 import '../../theme/mono_tokens.dart';
@@ -269,6 +270,11 @@ class _MiniPlayerCardState extends State<_MiniPlayerCard> with ContextMenuTapMix
     final isPlaying = context.select<MusicPlaybackService, bool>((s) => s.isPlaying);
     final client = context.tryGetMediaClientWithFallback(serverIdOrNull(widget.track.serverId));
     final artist = widget.track.trackArtistTitle;
+    final bookChapters = context.watch<BookChapterProvider>();
+    // Audiobooks: swap the artist line for the current chapter title
+    // instead of adding a third line — the mini player's card height is
+    // fixed and there's no room for both.
+    final subtitle = (bookChapters.hasChapters ? bookChapters.currentChapter?.label : null) ?? artist;
 
     Widget card = Material(
       color: tk.surface,
@@ -299,7 +305,7 @@ class _MiniPlayerCardState extends State<_MiniPlayerCard> with ContextMenuTapMix
                         onLongPress: showContextMenu,
                         onNavigateRight: () => _transportKey.currentState?.requestFocusOnFirst(),
                         semanticLabel: widget.track.title,
-                        semanticValue: artist,
+                        semanticValue: subtitle,
                         descendantsAreFocusable: false,
                         disableScale: true,
                         useBackgroundFocus: true,
@@ -329,9 +335,9 @@ class _MiniPlayerCardState extends State<_MiniPlayerCard> with ContextMenuTapMix
                                     overflow: .ellipsis,
                                     style: TextStyle(fontSize: 14, fontWeight: .w600, color: tk.text),
                                   ),
-                                  if (artist != null && artist.isNotEmpty)
+                                  if (subtitle != null && subtitle.isNotEmpty)
                                     Text(
-                                      artist,
+                                      subtitle,
                                       maxLines: 1,
                                       overflow: .ellipsis,
                                       style: TextStyle(fontSize: 12, color: tk.textMuted),
