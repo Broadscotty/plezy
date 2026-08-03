@@ -1270,6 +1270,26 @@ class MultiServerManager {
         return future;
       }
 
+      // Debrid (Stremio) offline path — re-probe the registered client. Its
+      // health is a single remote manifest fetch, so a transient DNS/CDN blip
+      // at bind time shouldn't leave the library hidden until app resume.
+      final debridClient = _clients[serverId];
+      if (debridClient is StremioDebridClient) {
+        final future = debridClient
+            .checkHealth()
+            .then((status) => _applyHealth(ServerId(serverId), status))
+            .timeout(
+              const Duration(seconds: 20),
+              onTimeout: () {
+                appLogger.d('Debrid reconnection timed out for $serverId');
+              },
+            )
+            .whenComplete(() => _activeOptimizations.remove(serverId));
+
+        _activeOptimizations[serverId] = future;
+        return future;
+      }
+
       return Future<void>.value();
     });
 

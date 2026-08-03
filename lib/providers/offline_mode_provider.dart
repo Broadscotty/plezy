@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import '../media/ids.dart';
+import '../media/media_backend.dart';
 import '../mixins/disposable_change_notifier_mixin.dart';
 import 'multi_server_provider.dart';
 import '../services/multi_server_manager.dart';
@@ -28,6 +30,28 @@ class OfflineModeProvider extends ChangeNotifier with DisposableChangeNotifierMi
   bool _lastOfflineState = false;
   bool _isInitialized = false;
 
+  /// Whether at least one server is usable right now: a probed-online server,
+  /// or a visible/registered debrid (Stremio) client. Debrid is reachable over
+  /// the internet regardless of LAN server health, so a Plex outage must not
+  /// flip the app offline while a Stremio source is configured. Its per-request
+  /// catalog fetches already retry; a failed health probe is a blip, not a
+  /// dead source.
+  static bool _initialHasServerConnection(MultiServerProvider? provider, MultiServerManager manager) {
+    if (provider != null) return provider.hasConnectedServers || provider.hasVisibleDebridClients;
+    return manager.onlineServerIds.isNotEmpty || manager.serverIds.any(
+      (id) => manager.getClient(ServerId(id))?.backend == MediaBackend.debrid,
+    );
+  }
+
+  /// Same as [_initialHasServerConnection] but against the live provider.
+  bool _computeHasServerConnection() {
+    final provider = _multiServerProvider;
+    if (provider != null) return provider.hasConnectedServers || provider.hasVisibleDebridClients;
+    return _serverManager.onlineServerIds.isNotEmpty || _serverManager.serverIds.any(
+      (id) => _serverManager.getClient(ServerId(id))?.backend == MediaBackend.debrid,
+    );
+  }
+
   /// Latest raw connectivity results. This provider owns the app's single
   /// `Connectivity()` subscription; consumers needing the connection *type*
   /// (e.g. the WiFi-reconnect sync trigger in main.dart) read it from here
@@ -50,7 +74,7 @@ class OfflineModeProvider extends ChangeNotifier with DisposableChangeNotifierMi
 
   OfflineModeProvider(this._serverManager, {MultiServerProvider? multiServerProvider})
     : _multiServerProvider = multiServerProvider,
-      _hasServerConnection = (multiServerProvider?.hasConnectedServers ?? _serverManager.onlineServerIds.isNotEmpty) {
+      _hasServerConnection = _initialHasServerConnection(multiServerProvider, _serverManager) {
     // Pre-seed the "received status" flag if there are already online
     // servers (e.g. provider rebuilt mid-session) or the active profile's
     // visibility filter has already settled.
@@ -98,7 +122,7 @@ class OfflineModeProvider extends ChangeNotifier with DisposableChangeNotifierMi
     _multiServerProvider?.removeListener(_handleMultiServerProviderChanged);
     _multiServerProvider = provider;
     _multiServerProvider?.addListener(_handleMultiServerProviderChanged);
-    _hasServerConnection = provider.hasConnectedServers;
+    _hasServerConnection = _computeHasServerConnection();
     _markServerStatusKnownIfSettled();
     _notifyIfOfflineChanged();
   }
@@ -117,11 +141,11 @@ class OfflineModeProvider extends ChangeNotifier with DisposableChangeNotifierMi
       // connectivity_plus can throw PlatformException on Windows (NetworkManager::StartListen)
       _hasNetworkConnection = true;
     }
-    _hasServerConnection = _multiServerProvider?.hasConnectedServers ?? _serverManager.onlineServerIds.isNotEmpty;
+    _hasServerConnection = _computeHasServerConnection();
   }
 
   void _handleMultiServerProviderChanged() {
-    _hasServerConnection = _multiServerProvider?.hasConnectedServers ?? _serverManager.onlineServerIds.isNotEmpty;
+    _hasServerConnection = _computeHasServerConnection();
     _markServerStatusKnownIfSettled();
     _notifyIfOfflineChanged();
   }
@@ -179,7 +203,7 @@ class OfflineModeProvider extends ChangeNotifier with DisposableChangeNotifierMi
 
     // Monitor server status from MultiServerManager
     _serverStatusSubscription = _serverManager.statusStream.listen((statusMap) {
-      _hasServerConnection = _multiServerProvider?.hasConnectedServers ?? statusMap.values.any((isOnline) => isOnline);
+      _hasServerConnection = _computeHasServerConnection();
       _hasReceivedServerStatus = true;
       _notifyIfOfflineChanged();
     });

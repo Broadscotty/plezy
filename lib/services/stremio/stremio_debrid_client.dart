@@ -1,5 +1,6 @@
 import '../../exceptions/media_server_exceptions.dart';
 import '../../media/download_resolution.dart';
+import '../../media/episode_collection.dart';
 import '../../media/ids.dart';
 import '../../media/library_filter_result.dart';
 import '../../media/library_first_character.dart';
@@ -241,12 +242,101 @@ class StremioDebridClient extends MediaServerClient {
   @override
   Future<void> refreshLibraryMetadata(String libraryId) async {}
 
-  @override
+  /// Split a Cinemeta-style item id into its show id and optional
+  /// season/episode suffix. Show ids are bare (`tt1234567`); episode ids carry
+  /// `{show}:{season}:{episode}` and season ids `{show}:{season}` per the
+  /// Stremio video-id convention. Cinemeta's /meta endpoint only serves
+  /// show-level meta, so any suffix must be stripped before the meta fetch
+  /// and the flat `videos` array filtered client-side.
+  static ({String showId, int? season, int? episode}) _splitShowVideoId(String id) {
+    final parts = id.split(':');
+    final showId = parts.first;
+    final season = parts.length > 1 ? int.tryParse(parts[1]) : null;
+    final episode = parts.length > 2 ? int.tryParse(parts[2]) : null;
+    return (showId: showId, season: season, episode: episode);
+  }
+
+  /// Map a [StremioMetaVideo] (an episode row inside a show's meta) to a
+  /// debrid [MediaItem], wiring the parent/season/grandparent hierarchy the
+  /// detail screen and episode queue depend on.
+  MediaItem _mapEpisode(
+    StremioMetaPreview meta,
+    StremioMetaVideo video, {
+    required String stremioType,
+    required String showId,
+    required String seasonId,
+  }) {
+    return MediaItem(
+      id: StremioItemId(stremioType, video.id).toString(),
+      backend: MediaBackend.debrid,
+      kind: MediaKind.episode,
+      title: video.title,
+      summary: video.overview,
+      index: video.episode,
+      parentIndex: video.season,
+      parentId: seasonId,
+      grandparentId: StremioItemId(stremioType, showId).toString(),
+      grandparentTitle: meta.name,
+      parentTitle: meta.name,
+      thumbPath: video.thumbnail ?? meta.poster,
+      serverId: serverId.toString(),
+      serverName: serverName,
+      raw: {'stremioType': stremioType, 'stremioId': video.id, 'addonUrl': _streamAddon.addonUrl},
+    );
+  }
+
+  /// Fetch a show's full meta, tolerant of season/episode-suffixed ids: strips
+  /// the suffix so Cinemeta's /meta endpoint (show-level only) resolves.
+  Future<StremioMetaPreview?> _fetchShowMeta(String type, String stremioId) async {
+    final showId = _splitShowVideoId(stremioId).showId;
+    return _catalogAddon.fetchMeta(type, showId);
+  }
+
+  /// Resolve [id] (`show`, `season`, or `episode` scoped) to a [MediaItem]
+  /// with playable versions. Show/movie ids map the preview; season ids build
+  /// a synthetic season row over the flat videos list; episode ids find the
+  /// matching video. Streams are always fetched with the FULL id — stream
+  /// addons expect `{show}:{season}:{episode}`, never the bare show id.
   Future<MediaItem?> fetchItem(String id) async {
     final parsed = StremioItemId.parse(id);
-    final meta = await _catalogAddon.fetchMeta(parsed.type, parsed.stremioId);
+    final split = _splitShowVideoId(parsed.stremioId);
+    final meta = await _fetchShowMeta(parsed.type, parsed.stremioId);
     if (meta == null) return null;
-    final item = _mapPreviewToItem(meta);
+
+    MediaItem item;
+    if (split.episode != null && split.season != null) {
+      final video = meta.videos?.where((v) => v.season == split.season && v.episode == split.episode).firstOrNull;
+      if (video == null) return null;
+      item = _mapEpisode(
+        meta,
+        video,
+        stremioType: parsed.type,
+        showId: split.showId,
+        seasonId: StremioItemId(parsed.type, '${split.showId}:${split.season}').toString(),
+      );
+    } else if (split.season != null) {
+      final seasonVideos = meta.videos?.where((video) => video.season == split.season) ?? const <StremioMetaVideo>[];
+      if (seasonVideos.isEmpty) return null;
+      item = MediaItem(
+        id: StremioItemId(parsed.type, '${split.showId}:${split.season}').toString(),
+        backend: MediaBackend.debrid,
+        kind: MediaKind.season,
+        title: meta.name,
+        parentTitle: meta.name,
+        index: split.season,
+        leafCount: seasonVideos.length,
+        parentId: StremioItemId(parsed.type, split.showId).toString(),
+        grandparentId: StremioItemId(parsed.type, split.showId).toString(),
+        thumbPath: meta.poster,
+        artPath: meta.background,
+        serverId: serverId.toString(),
+        serverName: serverName,
+        raw: {'stremioType': parsed.type, 'stremioId': '${split.showId}:${split.season}', 'addonUrl': _streamAddon.addonUrl},
+      );
+    } else {
+      item = _mapPreviewToItem(meta);
+    }
+
     final versions = await _streamsToVersions(parsed.type, parsed.stremioId);
     final resolved = versions.isEmpty ? item : item.copyWith(mediaVersions: versions);
     // Nothing else writes to the metadata cache for this backend -- without
@@ -273,35 +363,66 @@ class StremioDebridClient extends MediaServerClient {
   Future<({MediaItem? item, MediaItem? onDeckEpisode})> fetchItemWithOnDeck(String id) async =>
       (item: await fetchItem(id), onDeckEpisode: null);
 
+  /// Return a show's SEASONS (grouped from the flat video list) or a single
+  /// season's episodes when [parentId] is season-scoped. The detail screen
+  /// drives season tabs from this list, exactly like Plex/Jellyfin.
   @override
   Future<List<MediaItem>> fetchChildren(String parentId) async {
     final parsed = StremioItemId.parse(parentId);
-    final meta = await _catalogAddon.fetchMeta(parsed.type, parsed.stremioId);
+    final split = _splitShowVideoId(parsed.stremioId);
+    final meta = await _fetchShowMeta(parsed.type, parsed.stremioId);
     final videos = meta?.videos;
     if (videos == null || videos.isEmpty) return const [];
-    final episodes = videos
-        .map(
-          (video) => MediaItem(
-            id: StremioItemId(parsed.type, video.id).toString(),
-            backend: MediaBackend.debrid,
-            kind: MediaKind.episode,
-            title: video.title,
-            summary: video.overview,
-            index: video.episode,
-            parentIndex: video.season,
-            parentId: parentId,
-            parentTitle: meta?.name,
-            thumbPath: video.thumbnail,
-            serverId: serverId.toString(),
-            serverName: serverName,
-            raw: {'stremioType': parsed.type, 'stremioId': video.id, 'addonUrl': _streamAddon.addonUrl},
-          ),
-        )
-        .toList();
-    for (final episode in episodes) {
-      await cache.put(serverId, episode.id, episode.toJson());
+
+    // Season-scoped parent: return that season's episodes.
+    if (split.season != null) {
+      final seasonId = parentId;
+      final episodes = videos
+          .where((video) => video.season == split.season)
+          .map((video) => _mapEpisode(meta!, video, stremioType: parsed.type, showId: split.showId, seasonId: seasonId))
+          .toList()
+        ..sort((a, b) => (a.index ?? 0).compareTo(b.index ?? 0));
+      for (final episode in episodes) {
+        await cache.put(serverId, episode.id, episode.toJson());
+      }
+      return episodes;
     }
-    return episodes;
+
+    // Show-scoped parent: group videos into season rows so the detail screen
+    // shows season tabs instead of one flattened mega-list.
+    final bySeason = <int, List<StremioMetaVideo>>{};
+    for (final video in videos) {
+      bySeason.putIfAbsent(video.season ?? 0, () => []).add(video);
+    }
+    final seasons = bySeason.entries.map((entry) {
+      final seasonNumber = entry.key;
+      final seasonVideos = entry.value;
+      return MediaItem(
+        id: StremioItemId(parsed.type, '${split.showId}:$seasonNumber').toString(),
+        backend: MediaBackend.debrid,
+        kind: MediaKind.season,
+        title: meta?.name,
+        parentTitle: meta?.name,
+        index: seasonNumber,
+        leafCount: seasonVideos.length,
+        parentId: parentId,
+        grandparentId: parentId,
+        thumbPath: meta?.poster,
+        artPath: meta?.background,
+        serverId: serverId.toString(),
+        serverName: serverName,
+        raw: {
+          'stremioType': parsed.type,
+          'stremioId': '${split.showId}:$seasonNumber',
+          'addonUrl': _streamAddon.addonUrl,
+        },
+      );
+    }).toList()
+      ..sort((a, b) => (a.index ?? 0).compareTo(b.index ?? 0));
+    for (final season in seasons) {
+      await cache.put(serverId, season.id, season.toJson());
+    }
+    return seasons;
   }
 
   @override
@@ -316,23 +437,90 @@ class StremioDebridClient extends MediaServerClient {
     void Function(List<MediaItem> itemsSoFar)? onPage,
   }) => _unsupported('fetchFolderChildren');
 
+  /// Page a season's episodes (or, for a show-scoped id, ALL episodes across
+  /// every season — the flattened "episodes directly" view). Uses the same
+  /// in-memory filter over the show's flat video list as [fetchChildren].
   @override
-  Future<LibraryPage<MediaItem>> fetchChildrenPage(String parentId, {int? start, int? size, AbortController? abort}) =>
-      _unsupported('fetchChildrenPage');
+  Future<LibraryPage<MediaItem>> fetchChildrenPage(
+    String parentId, {
+    int? start,
+    int? size,
+    AbortController? abort,
+  }) async {
+    final parsed = StremioItemId.parse(parentId);
+    final split = _splitShowVideoId(parsed.stremioId);
+    final meta = await _fetchShowMeta(parsed.type, parsed.stremioId);
+    final videos = meta?.videos ?? const <StremioMetaVideo>[];
+    final filtered = (split.season == null
+            ? videos
+            : videos.where((video) => video.season == split.season))
+        .toList()
+      ..sort((a, b) => (a.index ?? 0).compareTo(b.index ?? 0));
 
+    final offset = start ?? 0;
+    final pageSize = size ?? filtered.length;
+    final slice = filtered.skip(offset).take(pageSize).toList();
+    final episodes = [
+      for (final video in slice)
+        _mapEpisode(
+          meta!,
+          video,
+          stremioType: parsed.type,
+          showId: split.showId,
+          seasonId: split.season == null
+              ? parentId
+              : StremioItemId(parsed.type, '${split.showId}:${split.season}').toString(),
+        ),
+    ];
+    for (final episode in episodes) {
+      await cache.put(serverId, episode.id, episode.toJson());
+    }
+    return LibraryPage(items: episodes, totalCount: filtered.length, offset: offset);
+  }
+
+  /// Flattened episodes for "play all"/"download all"/queue flows — the same
+  /// flat list Plex serves via /grandchildren.
   @override
   Future<LibraryPage<MediaItem>> fetchPlayableDescendantsPage(
     String parentId, {
     int? start,
     int? size,
     AbortController? abort,
-  }) => _unsupported('fetchPlayableDescendantsPage');
+  }) => fetchChildrenPage(parentId, start: start, size: size, abort: abort);
 
   @override
-  Future<List<MediaItem>> fetchPlayableDescendants(String parentId) => fetchChildren(parentId);
+  Future<List<MediaItem>> fetchPlayableDescendants(String parentId) async {
+    final page = await fetchPlayableDescendantsPage(parentId);
+    return page.items;
+  }
 
+  /// Client-side episode queue for prev/next/up-next: all episodes of the
+  /// series in aired order, built from the show meta's flat video list.
   @override
-  Future<List<MediaItem>?> fetchClientSideEpisodeQueue(String seriesId) async => null;
+  Future<List<MediaItem>?> fetchClientSideEpisodeQueue(String seriesId) async {
+    final parsed = StremioItemId.parse(seriesId);
+    final meta = await _fetchShowMeta(parsed.type, parsed.stremioId);
+    final videos = meta?.videos;
+    if (videos == null || videos.isEmpty) return null;
+    final episodes = videos
+        .map(
+          (video) => _mapEpisode(
+            meta!,
+            video,
+            stremioType: parsed.type,
+            showId: _splitShowVideoId(parsed.stremioId).showId,
+            seasonId: video.season == null
+                ? seriesId
+                : StremioItemId(parsed.type, '${_splitShowVideoId(parsed.stremioId).showId}:${video.season}').toString(),
+          ),
+        )
+        .toList()
+      ..sort(compareEpisodesByWatchOrder);
+    for (final episode in episodes) {
+      await cache.put(serverId, episode.id, episode.toJson());
+    }
+    return episodes;
+  }
 
   @override
   Future<List<MediaItem>> fetchMoreHubItems(String hubId, {int? limit}) async => const [];

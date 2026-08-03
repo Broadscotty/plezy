@@ -307,28 +307,41 @@ class ActiveProfileBinder {
       // Bind the implicit Plex Home parent and borrowed/extra join rows in
       // parallel. A slow/offline Plex parent should not add its timeout budget
       // on top of an otherwise reachable Jellyfin or borrowed-server bind.
-      final results = await Future.wait([
-        if (profile.isPlexHome)
-          _bindPlexHome(
+      //
+      // Each arm is error-capped so a single connection's failure can never
+      // discard the other arms' results: Future.wait is fail-fast, and if the
+      // Plex arm threw (e.g. a transient auth/token write hiccup while the
+      // debrid arm had already resolved visible({conn.id})), the whole bind
+      // would fall into the catch below with success=false and the Stremio
+      // server would never become visible — leaving a debrid-only profile
+      // stuck in startup-offline with no way to browse Stremio.
+      final results = await Future.wait(
+        [
+          if (profile.isPlexHome)
+            _bindPlexHome(
+              profile,
+              joinRows: joinRows,
+              connectionsById: connectionsById,
+              allowPinPrompt: allowPinPrompt,
+              generation: generation,
+            ),
+          // Both kinds also bind borrowed/extra connections via the join table.
+          // For plex_home this handles a Jellyfin server (or extra Plex account)
+          // that was attached to the profile via the borrow flow — the parent
+          // account is bound by `_bindPlexHome` above and isn't represented in
+          // the join table.
+          _bindJoinRows(
             profile,
             joinRows: joinRows,
             connectionsById: connectionsById,
             allowPinPrompt: allowPinPrompt,
             generation: generation,
           ),
-        // Both kinds also bind borrowed/extra connections via the join table.
-        // For plex_home this handles a Jellyfin server (or extra Plex account)
-        // that was attached to the profile via the borrow flow — the parent
-        // account is bound by `_bindPlexHome` above and isn't represented in
-        // the join table.
-        _bindJoinRows(
-          profile,
-          joinRows: joinRows,
-          connectionsById: connectionsById,
-          allowPinPrompt: allowPinPrompt,
-          generation: generation,
-        ),
-      ]);
+        ].map((future) => future.catchError((Object e, StackTrace st) {
+          appLogger.w('ActiveProfileBinder: one bind arm failed; continuing with the rest', error: e, stackTrace: st);
+          return const _ProfileBindResult.empty();
+        })),
+      );
       if (!_isCurrentBind(profile.id, generation)) return false;
       final visibleServerIds = <String>{};
       for (final result in results) {

@@ -3,6 +3,7 @@ import '../media/ids.dart';
 
 import 'package:flutter/foundation.dart';
 
+import '../media/media_backend.dart';
 import '../media/media_server_client.dart';
 import '../models/livetv_dvr.dart';
 import '../mixins/disposable_change_notifier_mixin.dart';
@@ -237,6 +238,17 @@ class MultiServerProvider extends ChangeNotifier with DisposableChangeNotifierMi
 
   /// Check if any servers are connected
   bool get hasConnectedServers => onlineServerCount > 0;
+
+  /// Whether at least one visible server is a Stremio/debrid client.
+  ///
+  /// Debrid serves its library over the internet (Stremio addon + Real-Debrid),
+  /// independent of any LAN media server, so it keeps the app usable when Plex
+  /// is unreachable (travelling, PMS down). Unlike [hasConnectedServers] this
+  /// counts a *registered* debrid server even when its last health probe
+  /// failed — the probe is a single flaky remote manifest fetch, and catalog
+  /// fetches retry per request, so a probe blip must not hide the library.
+  bool get hasVisibleDebridClients =>
+      serverIds.any((id) => _serverManager.getClient(ServerId(id))?.backend == MediaBackend.debrid);
 
   /// Whether at least one online server is a Plex server. Used to gate
   /// Plex-only chrome (server-activities popover, conflict-resolution
