@@ -81,6 +81,12 @@ class MultiServerManager {
   final Duration _connectivityDebounceDuration;
   FutureOr<void> Function(JellyfinConnection connection)? onJellyfinConnectionUpdated;
 
+  /// Escalation hook for reconnects that keep failing against stale cached
+  /// connection metadata. The binder wires this to re-fetch the server list
+  /// from plex.tv and rotate in fresh endpoints — otherwise a server whose
+  /// address changed while the app was open stays offline until restart.
+  Future<void> Function(ServerId serverId, PlexServer server)? onPlexReconnectEscalate;
+
   final Map<String, MediaServerClient> _clients = {};
 
   final Map<String, PlexServer> _plexServers = {};
@@ -1185,6 +1191,13 @@ class MultiServerManager {
       appLogger.i('Successfully reconnected to ${server.name}');
     } catch (e) {
       appLogger.d('Reconnection failed for ${server.name}: $e');
+      // A persistent reconnect failure usually means the cached server
+      // snapshot is stale (endpoints changed while the app sat open).
+      // Escalate so the binder can re-fetch the server list from plex.tv
+      // and rotate in fresh endpoints — same re-discovery that happens at
+      // bind time. Fire-and-forget; the escalator owns its own error
+      // handling and coalescing.
+      unawaited(onPlexReconnectEscalate?.call(serverId, server));
       // Leave status as offline — will retry on next trigger
     }
   }

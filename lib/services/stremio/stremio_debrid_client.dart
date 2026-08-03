@@ -757,7 +757,8 @@ class StremioDebridClient extends MediaServerClient {
     String? mediaSourceId,
     int? audioStreamIndex,
     int? subtitleStreamIndex,
-  }) async {}
+  }) =>
+      _unsupported('playback progress reporting');
 
   @override
   Future<void> reportPlaybackProgress({
@@ -771,7 +772,8 @@ class StremioDebridClient extends MediaServerClient {
     String? mediaSourceId,
     int? audioStreamIndex,
     int? subtitleStreamIndex,
-  }) async {}
+  }) =>
+      _unsupported('playback progress reporting');
 
   @override
   Future<void> reportPlaybackStopped({
@@ -782,7 +784,8 @@ class StremioDebridClient extends MediaServerClient {
     String? liveStreamId,
     String? mediaSourceId,
     PlaybackReportMetadata report = const PlaybackReportMetadata.live(),
-  }) async {}
+  }) =>
+      _unsupported('playback progress reporting');
 
   /// Resolve [item]'s best stream to a direct playable URL: already-resolved
   /// addon streams are used as-is; torrent-backed streams are added to

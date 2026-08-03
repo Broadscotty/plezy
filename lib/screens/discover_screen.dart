@@ -603,7 +603,13 @@ class _DiscoverScreenState extends State<DiscoverScreen>
   void _refreshWithHealthProbe() {
     unawaited(() async {
       try {
-        await context.read<MultiServerProvider>().checkServerHealth();
+        final multiServer = context.read<MultiServerProvider>();
+        await multiServer.checkServerHealth();
+        // Servers still offline after the probe get a reconnect attempt —
+        // same chain as app-resume. If the reconnect fails against stale
+        // endpoints, the manager escalates to the binder, which re-fetches
+        // the server list from plex.tv and rebinds with fresh connections.
+        await multiServer.serverManager.reconnectOfflineServers();
       } catch (e) {
         appLogger.d('Discover refresh health probe failed', error: e);
       }

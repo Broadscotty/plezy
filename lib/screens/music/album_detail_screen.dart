@@ -14,6 +14,7 @@ import '../../media/media_item.dart';
 import '../../mixins/grid_focus_node_mixin.dart';
 import '../../models/download_models.dart';
 import '../../providers/download_provider.dart';
+import '../../providers/multi_server_provider.dart';
 import '../../services/music/music_playback_service.dart';
 import '../../theme/mono_tokens.dart';
 import '../../utils/app_logger.dart';
@@ -85,7 +86,27 @@ class _AlbumDetailScreenState extends BaseMediaListDetailScreen<AlbumDetailScree
   bool get hasItems => items.isNotEmpty;
 
   @override
-  Future<List<MediaItem>> fetchItems() => mediaClient.fetchAlbumTracks(widget.album.id);
+  Future<List<MediaItem>> fetchItems() async {
+    final albumId = widget.album.id;
+    final serverId = widget.album.serverId;
+    // When the album's own server is offline the network fetch would fail
+    // (empty/error list — "poster shows but can't play"). The Downloads >
+    // Music entry point reaches this screen for downloaded albums, so fall
+    // back to the locally stored tracks whenever the server is unreachable.
+    final serverOnline = serverId == null ||
+        context
+            .read<MultiServerProvider>()
+            .serverManager
+            .isClientOnline(ServerId(serverId));
+    if (!serverOnline) {
+      final downloadProvider = context.read<DownloadProvider?>();
+      if (downloadProvider != null) {
+        final downloaded = downloadProvider.getDownloadedTracksForAlbum(albumId);
+        if (downloaded.isNotEmpty) return downloaded;
+      }
+    }
+    return mediaClient.fetchAlbumTracks(albumId);
+  }
 
   @override
   Future<void> loadItems() async {

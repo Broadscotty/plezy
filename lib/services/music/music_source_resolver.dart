@@ -1,4 +1,5 @@
 import '../../database/app_database.dart';
+import '../../media/ids.dart';
 import '../../media/media_item.dart';
 import '../../media/media_server_client.dart';
 import '../../media/media_source_info.dart';
@@ -68,10 +69,18 @@ class ServerMusicSourceResolver implements MusicSourceResolver {
   @override
   Future<MusicSource> resolve(MediaItem track) async {
     final settings = await SettingsService.getInstance();
+    // When the track's own server is unreachable, treat playback as offline
+    // mode: the resolver then substitutes any downloaded copy (version match
+    // relaxed — the alternative is failing), reports through the offline
+    // queue, and a downloaded audiobook keeps its position locally. With the
+    // server online this stays false, preserving server-stream + strict
+    // downloaded-version semantics.
+    final serverOnline = track.serverId == null ||
+        serverManager.isClientOnline(ServerId(track.serverId!));
     final context = await PlaybackSourceResolver(serverManager: serverManager, database: database).resolve(
       metadata: track,
       selectedMediaIndex: 0,
-      offlineLibraryMode: false,
+      offlineLibraryMode: !serverOnline,
       // Video-shaped preset is ignored for tracks; `original` also keeps the
       // resolver's downloaded-copy preference on.
       qualityPreset: TranscodeQualityPreset.original,

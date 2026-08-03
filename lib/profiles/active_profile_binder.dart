@@ -80,6 +80,13 @@ class ActiveProfileBinder {
 
   PlexAuthService? _plexAuth;
 
+  /// Coalescing for [serverManager.onPlexReconnectEscalate]: one in-flight
+  /// fetch at a time, plus a cooldown so a genuine outage (where plex.tv
+  /// returns the same dead endpoints) can't hammer the API every 45s probe.
+  /// Cleared on profile switch.
+  bool _reconnectEscalationRunning = false;
+  DateTime? _lastReconnectEscalationAt;
+
   bool _started = false;
   bool _isSwitching = false;
   String? _lastBoundProfileId;
@@ -138,9 +145,43 @@ class ActiveProfileBinder {
     return _userInitiatedActivations.remove(profileId);
   }
 
+  /// Escalation for [serverManager.onPlexReconnectEscalate]: the periodic
+  /// reconnect keeps failing, which usually means the cached server snapshot
+  /// is stale (endpoints changed while the app sat open). Re-running the
+  /// active profile bind re-fetches the server list from plex.tv with the
+  /// correct per-profile token, suppresses PIN prompts for passive rebinds,
+  /// and reconnects offline servers with fresh endpoints — the exact path
+  /// that works at bind time. Coalesced (one in-flight) and rate-limited
+  /// (5 min cooldown) so a genuine outage can't hammer plex.tv on the 45s
+  /// probe cycle.
+  Future<void> _escalatePlexReconnect(ServerId serverId, PlexServer staleServer) async {
+    if (!_started) return;
+    if (_reconnectEscalationRunning) return;
+    if (activeProfile.activeId == null) return;
+    final last = _lastReconnectEscalationAt;
+    if (last != null && DateTime.now().difference(last) < const Duration(minutes: 5)) return;
+
+    _reconnectEscalationRunning = true;
+    try {
+      appLogger.i('Plex reconnect escalation: re-binding profile to rediscover ${staleServer.name}');
+      await rebindActive();
+    } catch (e, stackTrace) {
+      appLogger.w('Plex reconnect escalation failed', error: e, stackTrace: stackTrace);
+    } finally {
+      _reconnectEscalationRunning = false;
+      _lastReconnectEscalationAt = DateTime.now();
+    }
+  }
+
   void start() {
     if (_started) return;
     _started = true;
+    // Wire the reconnect-escalation hook: when the server manager's periodic
+    // reconnect keeps failing (cached endpoints stale — e.g. Plex's LAN
+    // address changed), re-fetch the server list from plex.tv and rebind with
+    // fresh connections. Coalesced + debounced so a probe storm can't hammer
+    // plex.tv.
+    serverManager.onPlexReconnectEscalate = _escalatePlexReconnect;
     // Flip `isBinding` before anything else: callers navigate right after
     // start(), and screens (DiscoverScreen's no-servers gate) read the flag
     // synchronously during their first build. Deferring the mark to the
@@ -1087,6 +1128,11 @@ class ActiveProfileBinder {
 
   void dispose() {
     _bindGeneration++;
+    if (identical(serverManager.onPlexReconnectEscalate, _escalatePlexReconnect)) {
+      serverManager.onPlexReconnectEscalate = null;
+    }
+    _reconnectEscalationRunning = false;
+    _lastReconnectEscalationAt = null;
     if (!_started) return;
     activeProfile.removeListener(_onActiveProfileChanged);
     _plexHomePreVerified.clear();
