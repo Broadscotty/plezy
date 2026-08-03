@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -22,6 +23,7 @@ import '../../media/media_item.dart';
 import '../../media/stepped_seek.dart';
 import '../../media/media_server_client.dart';
 import '../../mixins/context_menu_tap_mixin.dart';
+import '../../providers/multi_server_provider.dart';
 import '../../services/device_performance.dart';
 import '../../services/download_artwork_service.dart';
 import '../../services/download_storage_service.dart';
@@ -33,6 +35,8 @@ import '../../utils/formatters.dart';
 import '../../utils/desktop_window_padding.dart';
 import '../../widgets/video_controls/helpers/eager_horizontal_drag_recognizer.dart';
 import '../../utils/media_image_helper.dart';
+import 'chapter_sheet.dart';
+import 'speed_sheet.dart';
 import '../../utils/music_navigation.dart';
 import '../../utils/platform_detector.dart';
 import '../../utils/provider_extensions.dart';
@@ -264,7 +268,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       return Scaffold(backgroundColor: tk.bg, body: const SizedBox.expand());
     }
 
-    final client = context.tryGetMediaClientWithFallback(serverIdOrNull(track.serverId));
+    // Artwork client: use the track's OWN server when it is online. When the
+    // owning server is offline (or hidden), resolve the downloaded artwork
+    // locally instead — a fallback client from another server cannot resolve
+    // this track's thumb URL, and a registered-but-offline client is non-null
+    // but equally useless for loading the thumb, so both would suppress the
+    // local-file path and show the generic fallback icon.
+    final trackServerId = serverIdOrNull(track.serverId);
+    final serverOnline =
+        trackServerId != null &&
+        (context.read<MultiServerProvider?>()?.isServerOnline(trackServerId) ?? false);
+    final client = serverOnline ? context.tryGetMediaClientWithFallback(trackServerId) : null;
     final isTV = PlatformDetector.isTV();
 
     Widget content = Stack(
@@ -826,6 +840,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               size: 22,
             ),
           ),
+          FocusableAction(
+            debugLabel: 'np_speed',
+            onPressed: () => unawaited(showSpeedSheet(_sheetContext)),
+            builder: (context, state) => _transportIcon(
+              state,
+              icon: Symbols.speed_rounded,
+              active: false,
+              tooltip: t.videoSettings.playbackSpeed,
+              onPressed: () => unawaited(showSpeedSheet(_sheetContext)),
+              size: 22,
+            ),
+          ),
+          FocusableAction(
+            debugLabel: 'np_chapters',
+            onPressed: () => unawaited(showChapterSheet(_sheetContext)),
+            builder: (context, state) => _transportIcon(
+              state,
+              icon: Symbols.bookmarks_rounded,
+              active: false,
+              tooltip: t.videoSettings.chapters,
+              onPressed: () => unawaited(showChapterSheet(_sheetContext)),
+              size: 22,
+            ),
+          ),
           if (showQueueButton)
             FocusableAction(
               debugLabel: 'np_queue',
@@ -1324,11 +1362,15 @@ String? _offlineArtworkPath(MediaItem track) {
   // downloader hashed `serverId:thumbPath` into a stable file name, so no
   // registry/globalKey round-trip is needed (and the key match is fragile:
   // the playing track may be a fresh browse item, not the exact download
-  // row). Missing files are safe — OptimizedMediaImage degrades to the
-  // network image / fallback icon.
-  return DownloadArtworkService.localPathSync(
+  // row). Only return a path that actually exists on disk — a computed-but-
+  // missing path would otherwise go through the missing-file resolution path
+  // pointlessly. Missing art is safe either way: OptimizedMediaImage degrades
+  // to the network image / fallback icon.
+  final path = DownloadArtworkService.localPathSync(
     DownloadStorageService.instance,
     ServerId(track.serverId!),
     track.thumbPath,
   );
+  if (path == null || !File(path).existsSync()) return null;
+  return path;
 }

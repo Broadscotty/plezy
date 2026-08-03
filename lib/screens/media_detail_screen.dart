@@ -451,7 +451,14 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
   }
 
   /// Session-fresh view of [item]: server snapshot + newest watch-state patch.
-  MediaItem _fresh(MediaItem item) => context.readFreshWatchState(item);
+  ///
+  /// Build-time resolution (watching, not reading): subscribes this screen's
+  /// build to the item's effective patch, so a late-arriving hydration (the
+  /// offline watch overlay is applied asynchronously after the download
+  /// provider loads) flips the play/resume icon as soon as stored progress
+  /// lands — previously a read-only lookup built once and could stay on the
+  /// plain play icon until some unrelated rebuild.
+  MediaItem _fresh(MediaItem item) => context.withFreshWatchState(item);
 
   List<MediaItem> _freshAll(List<MediaItem> items) => context.readFreshWatchStateAll(items);
 

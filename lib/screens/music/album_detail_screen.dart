@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -292,18 +293,31 @@ class _AlbumDetailScreenState extends BaseMediaListDetailScreen<AlbumDetailScree
   String? _offlineArtworkPath(MediaItem album) {
     if (album.serverId == null || album.thumbPath == null) return null;
     // Direct path resolution from the thumb (same hash the downloader used) —
-    // avoids a fragile globalKey registry match.
-    return DownloadArtworkService.localPathSync(
+    // avoids a fragile globalKey registry match. Only return a path that
+    // actually exists; missing art degrades to network/fallback in
+    // OptimizedMediaImage anyway.
+    final path = DownloadArtworkService.localPathSync(
       DownloadStorageService.instance,
       ServerId(album.serverId!),
       album.thumbPath,
     );
+    if (path == null || !File(path).existsSync()) return null;
+    return path;
   }
 
   Widget _buildHeader() {
     final tk = tokens(context);
     final textTheme = Theme.of(context).textTheme;
-    final client = context.tryGetMediaClientWithFallback(serverIdOrNull(widget.album.serverId));
+    // Artwork client: use the album's OWN server when it is online. When the
+    // owning server is offline (or hidden), resolve the downloaded artwork
+    // locally — a fallback client from another server cannot resolve this
+    // album's thumb URL, and a registered-but-offline client is non-null but
+    // useless for loading it, so both would suppress the local-file path.
+    final albumServerId = serverIdOrNull(widget.album.serverId);
+    final serverOnline =
+        albumServerId != null &&
+        (context.read<MultiServerProvider?>()?.isServerOnline(albumServerId) ?? false);
+    final client = serverOnline ? context.tryGetMediaClientWithFallback(albumServerId) : null;
     final artistName = widget.album.albumArtistTitle;
 
     final metaParts = <String>[

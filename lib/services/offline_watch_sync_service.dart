@@ -389,6 +389,13 @@ class OfflineWatchSyncService extends ChangeNotifier {
 
       appLogger.i('Syncing ${pendingActions.length} pending watch actions');
 
+      // Debrid actions are local-only: there is no server-side watch state to
+      // write to, and the local progress row IS the source of truth. Skipping
+      // them here (without deleting, without incrementing attempts) keeps the
+      // row in the DB so hydration re-applies it on every refresh — deleting
+      // it dropped stored progress for downloaded Stremio items (#2).
+      var debridLocalOnly = 0;
+
       for (final action in pendingActions) {
         if (_activeProfileId != profileId) {
           // A profile switch mid-loop rebinds server clients to the NEW
@@ -409,20 +416,17 @@ class OfflineWatchSyncService extends ChangeNotifier {
         final synced = await _withOnlineClientForAction(action, (client) async {
           try {
             // Debrid has no server-side watch state to write to: its report
-            // surface throws by design and local progress is the single
-            // source of truth (it lives in the watch-state store, not on a
-            // remote). Replaying the queued action against the debrid
-            // "server" would spin the retry loop below — the client's
-            // report methods throw UnsupportedError, syncAttempts climbs to
-            // maxSyncAttempts, and the action is dropped after 5 attempts
-            // (~every 60s, forever). Resolve the action locally instead and
-            // remove it once; the local watch-state patch already applied
-            // when the action was queued.
+            // surface throws by design and the local progress row is the
+            // single source of truth. Replaying the queued action against
+            // the debrid "server" would spin the retry loop below (the
+            // client's report methods throw UnsupportedError, syncAttempts
+            // climbs, and the action is dropped after 5 attempts, ~every
+            // 60s, forever) — and deleting the row would drop the stored
+            // progress for downloaded Stremio items. Keep it, just skip it.
             if (client.backend == MediaBackend.debrid) {
-              appLogger.d(
-                'Debrid action ${action.id} is local-only (no server to sync); clearing',
-              );
-              await _database.deleteWatchAction(action.id);
+              // Local-only: keep the row (it drives the offline watch-state
+              // hydration for downloaded Stremio items), just don't replay it.
+              debridLocalOnly++;
               return;
             }
             await _syncAction(client, action);
@@ -437,6 +441,9 @@ class OfflineWatchSyncService extends ChangeNotifier {
           appLogger.d('Keeping action ${action.id} queued until server is available');
           continue;
         }
+      }
+      if (debridLocalOnly > 0) {
+        appLogger.i('Kept $debridLocalOnly debrid action(s) as local-only watch state');
       }
     } finally {
       _isSyncing = false;

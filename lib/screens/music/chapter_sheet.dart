@@ -1,0 +1,132 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/symbols.dart';
+
+import '../../focus/focusable_list_tile.dart';
+import '../../i18n/strings.g.dart';
+import '../../media/ids.dart';
+import '../../media/media_item.dart';
+import '../../media/media_server_client.dart';
+import '../../media/media_source_info.dart';
+import '../../providers/multi_server_provider.dart';
+import '../../services/music/music_playback_service.dart';
+import '../../theme/mono_tokens.dart';
+import '../../utils/formatters.dart';
+import '../../widgets/app_icon.dart';
+import '../../widgets/bottom_sheet_header.dart';
+import '../../widgets/overlay_sheet.dart';
+
+/// Open the chapter sheet for the music player (audiobooks).
+/// The caller's screen must have an [OverlaySheetHost] ancestor (all
+/// now-playing layouts do).
+Future<void> showChapterSheet(BuildContext context) {
+  return OverlaySheetController.of(context).show<void>(showDragHandle: true, builder: (_) => const ChapterSheet());
+}
+
+/// Audiobook chapter list for the music player. Fetches chapters through the
+/// owning server client (cache-first, so downloaded audiobooks still show
+/// chapters while offline), highlights the current chapter against the live
+/// playback position, and taps seek to the chapter start.
+class ChapterSheet extends StatefulWidget {
+  const ChapterSheet({super.key});
+
+  @override
+  State<ChapterSheet> createState() => _ChapterSheetState();
+}
+
+class _ChapterSheetState extends State<ChapterSheet> {
+  Future<PlaybackExtras?>? _extrasFuture;
+
+  Future<PlaybackExtras?> _loadExtras() {
+    final service = context.read<MusicPlaybackService>();
+    final track = service.currentTrack;
+    final client = _clientFor(context, track);
+    if (track == null || client == null) return Future.value(null);
+    // Cache-first: works offline for downloaded items, and the cache may be
+    // the only source when the owning server is unreachable.
+    return client.fetchPlaybackExtras(track.id);
+  }
+
+  MediaServerClient? _clientFor(BuildContext context, MediaItem? track) {
+    if (track?.serverId == null) return null;
+    final provider = context.read<MultiServerProvider?>();
+    return provider?.getClientForServer(ServerId(track!.serverId!));
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _extrasFuture = _loadExtras();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tk = tokens(context);
+    final service = context.watch<MusicPlaybackService>();
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Column(
+      mainAxisSize: .min,
+      children: [
+        const BottomSheetHeader(title: t.videoSettings.chapters),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 460),
+          child: FutureBuilder<PlaybackExtras?>(
+            future: _extrasFuture,
+            builder: (context, snapshot) {
+              final chapters = snapshot.data?.chapters ?? const <MediaChapter>[];
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (chapters.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    t.videoSettings.noChaptersAvailable,
+                    style: TextStyle(color: tk.textMuted),
+                    textAlign: TextAlign.center,
+                  ),
+                );
+              }
+              return StreamBuilder<Duration>(
+                stream: service.positionStream,
+                initialData: service.position,
+                builder: (context, positionSnapshot) {
+                  final position = positionSnapshot.data ?? Duration.zero;
+                  final currentIndex = MediaChapter.indexAtPosition(position, chapters);
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: chapters.length,
+                    itemBuilder: (context, index) {
+                      final chapter = chapters[index];
+                      final isCurrent = index == currentIndex;
+                      return FocusableListTile(
+                        title: Text(
+                          chapter.label,
+                          style: TextStyle(color: isCurrent ? colorScheme.primary : null),
+                        ),
+                        subtitle: Text(formatDurationTextual(chapter.startTime.inMilliseconds)),
+                        leading: isCurrent ? AppIcon(Symbols.play_arrow_rounded, fill: 1, color: colorScheme.primary) : null,
+                        onTap: () => unawaited(_seekTo(context, chapter)),
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _seekTo(BuildContext context, MediaChapter chapter) async {
+    final service = context.read<MusicPlaybackService>();
+    await service.seek(chapter.startTime);
+    if (context.mounted) OverlaySheetController.of(context).close();
+  }
+}

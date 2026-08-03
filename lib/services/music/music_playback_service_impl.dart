@@ -9,6 +9,7 @@ import '../../media/ids.dart';
 import '../../media/lyrics.dart';
 import '../../media/media_item.dart';
 import '../../media/media_server_client.dart';
+import '../../media/playback_rate.dart';
 import '../../mpv/models.dart';
 import '../../mpv/player/player.dart';
 import '../../utils/app_logger.dart';
@@ -107,6 +108,13 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
   /// volume when settings aren't bootstrapped (tests).
   double _volume = SettingsService.instanceOrNull?.read(SettingsService.musicVolume) ?? 100.0;
   late final ValueNotifier<double> _volumeNotifier = ValueNotifier<double>(_volume);
+
+  /// Persisted playback speed (clamped to mpv's rate bounds), re-applied to
+  /// every player instance and after gapless/auto-advance opens. Audiobooks
+  /// keep their chosen pace across tracks and restarts.
+  double _playbackSpeed = SettingsService.instanceOrNull
+          ?.read(SettingsService.defaultPlaybackSpeed) ??
+      1.0;
   // One settings write stays in flight while rapid updates replace the single
   // pending slot. The drain intentionally survives service disposal.
   double? _pendingVolumeWrite;
@@ -413,6 +421,10 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
 
       committedPlayer = player;
       _setStatus(play ? MusicPlaybackStatus.playing : MusicPlaybackStatus.paused);
+      // Re-apply the user's speed after every open — mpv resets to 1.0 per
+      // open, so gapless auto-advance would otherwise drop an audiobook's
+      // chosen pace at every track boundary.
+      unawaited(_reapplyPlaybackSpeed());
       _bindTrackServices(track, source);
     } finally {
       // A stale open must never release a newer open's ownership. Only a
@@ -573,6 +585,7 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
     _player = player;
     _wirePlayerStreams(player);
     if (_volume != 100.0) unawaited(player.setVolume(_volume));
+    if (_playbackSpeed != 1.0) unawaited(_reapplyPlaybackSpeed());
     return player;
   }
 
@@ -598,7 +611,11 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
     }
     final player = _player;
     if (player != null) {
-      _mediaControls?.updatePlaybackState(isPlaying: player.state.isActive, position: position, speed: 1.0);
+      _mediaControls?.updatePlaybackState(
+        isPlaying: player.state.isActive,
+        position: position,
+        speed: _playbackSpeed,
+      );
     }
   }
 
@@ -612,7 +629,7 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
       _mediaControls?.updatePlaybackState(
         isPlaying: player.state.isActive,
         position: player.currentPosition,
-        speed: 1.0,
+        speed: _playbackSpeed,
         force: true,
       );
     }
@@ -850,7 +867,9 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
         // buttons map here on Android. (Never surfaced on iOS/macOS — see
         // MediaControlsManager.setControlsEnabled.)
         canSkip: true,
-        // Music always plays at 1.0 — never advertise a speed control.
+        // Speed control (audiobooks): advertise it so system/MPRIS surfaces
+        // can raise/lower the rate.
+        canSetSpeed: true,
       ),
     );
   }
@@ -893,11 +912,11 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
         _resumeAfterInterruption = false;
         unawaited(play());
       }
+    } else if (event is SetSpeedEvent) {
+      // Music now supports speed (audiobooks): honour external speed control
+      // requests (MPRIS Rate, headset double-tap bindings).
+      unawaited(setPlaybackSpeed(event.speed));
     }
-    // SetSpeedEvent is deliberately unhandled: music always plays at 1.0 and
-    // the control is not advertised — but Linux MPRIS exposes an always-
-    // writable Rate property, so the event can still arrive. The periodic
-    // playback-state update reasserts speed 1.0.
   }
 
   static const _defaultSkipInterval = Duration(seconds: 15);
@@ -1008,6 +1027,41 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
   @override
   Future<void> seek(Duration position) async {
     await _player?.seek(position);
+  }
+
+  @override
+  double get playbackSpeed => _playbackSpeed;
+
+  @override
+  Future<void> setPlaybackSpeed(double speed) async {
+    final clamped = speed.clamp(minimumPlaybackRate, maximumPlaybackRate);
+    if ((clamped - _playbackSpeed).abs() < 0.001) return;
+    _playbackSpeed = clamped;
+    notifyListeners();
+    final player = _player;
+    if (player != null) {
+      try {
+        await player.setRate(clamped);
+      } catch (e) {
+        appLogger.d('Failed to apply music playback speed $clamped', error: e);
+      }
+    }
+    final settings = SettingsService.instanceOrNull;
+    if (settings != null) await settings.write(SettingsService.defaultPlaybackSpeed, clamped);
+  }
+
+  /// Re-apply the persisted speed after an open or a resume that may have
+  /// recreated the audio player (video claim, gapless auto-advance). mpv
+  /// defaults to 1.0 per open; without this an audiobook user's chosen pace
+  /// silently resets at every track boundary. No-op at 1.0.
+  Future<void> _reapplyPlaybackSpeed() async {
+    final player = _player;
+    if (player == null || _playbackSpeed == 1.0) return;
+    try {
+      await player.setRate(_playbackSpeed);
+    } catch (e) {
+      appLogger.d('Failed to reapply music playback speed ${_playbackSpeed}', error: e);
+    }
   }
 
   @override

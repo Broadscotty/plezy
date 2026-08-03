@@ -70,12 +70,18 @@ class MultiServerManager {
       if (offlineServerIds.isEmpty) return;
       unawaited(checkServerHealth().then((_) {
         if (offlineServerIds.isNotEmpty) {
-          // forceRediscovery clears the cached endpoint so the candidate
-          // race runs against the full connection list — during an outage
-          // the cached URL is dead anyway, and a server that changed address
-          // self-heals on the next probe without waiting for the binder
-          // escalation (5 min cooldown).
-          return reconnectOfflineServers(forceRediscovery: true);
+          // Fast path: reconnect with the cached endpoint first. The
+          // candidate race probes the preferred (cached) URI first, which
+          // answers instantly when the server comes back on its usual
+          // address. forceRediscovery is NOT used here — it clears the
+          // cached endpoint and runs a full candidate race under the
+          // 15s reconnect cap, which can time out before reaching a
+          // slow-listed working candidate and leaves the server offline
+          // until restart (the regression this self-heal used to prevent).
+          // Stale endpoints are still handled: a genuinely dead cached URL
+          // makes the race fall through to the other candidates, and
+          // persistent failures escalate to server re-discovery.
+          return reconnectOfflineServers();
         }
       }));
     });

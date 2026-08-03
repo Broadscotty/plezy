@@ -53,6 +53,11 @@ abstract class MusicPlaybackService extends ChangeNotifier {
   Duration get position;
   Stream<Duration> get positionStream;
 
+  /// Current playback speed multiplier (1.0 = normal). Bounded by
+  /// [minimumPlaybackRate] / [maximumPlaybackRate].
+  double get playbackSpeed;
+  Future<void> setPlaybackSpeed(double speed);
+
   /// Full queue in playback order (shuffle already applied).
   List<MediaItem> get queue;
 
@@ -238,6 +243,11 @@ class StubMusicPlaybackService extends MusicPlaybackService {
 
   @override
   Future<void> seek(Duration position) async {}
+
+  @override
+  double get playbackSpeed => 1.0;
+  @override
+  Future<void> setPlaybackSpeed(double speed) async {}
 
   @override
   double get volume => 100;
