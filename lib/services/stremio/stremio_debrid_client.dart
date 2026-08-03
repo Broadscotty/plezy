@@ -297,6 +297,7 @@ class StremioDebridClient extends MediaServerClient {
   /// a synthetic season row over the flat videos list; episode ids find the
   /// matching video. Streams are always fetched with the FULL id — stream
   /// addons expect `{show}:{season}:{episode}`, never the bare show id.
+  @override
   Future<MediaItem?> fetchItem(String id) async {
     final parsed = StremioItemId.parse(id);
     final split = _splitShowVideoId(parsed.stremioId);
