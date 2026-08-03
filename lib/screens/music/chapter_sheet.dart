@@ -58,7 +58,30 @@ class _ChapterSheetState extends State<ChapterSheet> {
     if (client == null) return Future.value(null);
     // Cache-first: works offline for downloaded items, and the cache may be
     // the only source when the owning server is unreachable.
-    return client.fetchPlaybackExtras(track!.id);
+    return client.fetchPlaybackExtras(track!.id).then((extras) {
+      if (extras == null || extras.chapters.isNotEmpty) return extras;
+      // Whole-track fallback: Plex doesn't surface embedded chapter atoms for
+      // audiobooks (Chronicle behaves the same), so when the server returns
+      // none we synthesize one chapter per track, mirroring Chronicle's
+      // `tracks.asChapterList`. This keeps chapter seek/skip usable for
+      // multi-part audiobooks instead of showing an empty sheet.
+      final fallback = <MediaChapter>[];
+      var cumulativeMs = 0;
+      for (final queueItem in service.queue) {
+        final durationMs = queueItem.duration?.inMilliseconds ?? 0;
+        fallback.add(
+          MediaChapter(
+            id: queueItem.id.hashCode,
+            index: fallback.length + 1,
+            startTimeOffset: cumulativeMs,
+            endTimeOffset: cumulativeMs + durationMs,
+            title: queueItem.title,
+          ),
+        );
+        cumulativeMs += durationMs;
+      }
+      return PlaybackExtras(chapters: fallback, markers: extras.markers);
+    });
   }
 
   @override
