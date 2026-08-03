@@ -1255,14 +1255,20 @@ List<MediaChapter> plexChaptersFromCacheJson(Map<String, dynamic>? metadataJson)
 
   final out = <MediaChapter>[];
   for (final chapter in chapterList.whereType<Map<String, dynamic>>()) {
-    final id = flexibleInt(chapter['id']);
-    if (id == null) continue;
+    // Plex audio chapters parsed from embedded m4b chapter atoms can arrive
+    // without a numeric `id` (video chapters always carry one). Chronicle
+    // accepts id-less chapters; dropping them here hid real audiobook
+    // chapters entirely. Fall back to the offset when the id is absent.
+    final id = flexibleInt(chapter['id']) ?? flexibleInt(chapter['startTimeOffset']);
+    final startTimeOffset = flexibleInt(chapter['startTimeOffset']);
+    final endTimeOffset = flexibleInt(chapter['endTimeOffset']);
+    if (id == null || startTimeOffset == null) continue;
     out.add(
       MediaChapter(
         id: id,
         index: flexibleInt(chapter['index']),
-        startTimeOffset: flexibleInt(chapter['startTimeOffset']),
-        endTimeOffset: flexibleInt(chapter['endTimeOffset']),
+        startTimeOffset: startTimeOffset,
+        endTimeOffset: endTimeOffset,
         title: chapter['tag']?.toString() ?? chapter['title']?.toString(),
         thumb: chapter['thumb'] as String?,
       ),
