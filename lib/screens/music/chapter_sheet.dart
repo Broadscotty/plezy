@@ -8,7 +8,6 @@ import '../../widgets/focusable_list_tile.dart';
 import '../../i18n/strings.g.dart';
 import '../../media/ids.dart';
 import '../../media/media_item.dart';
-import '../../media/media_server_client.dart';
 import '../../media/media_source_info.dart';
 import '../../providers/multi_server_provider.dart';
 import '../../services/music/music_playback_service.dart';
@@ -39,26 +38,27 @@ class ChapterSheet extends StatefulWidget {
 class _ChapterSheetState extends State<ChapterSheet> {
   Future<PlaybackExtras?>? _extrasFuture;
 
-  Future<PlaybackExtras?> _loadExtras() {
-    final service = context.read<MusicPlaybackService>();
-    final track = service.currentTrack;
-    final client = _clientFor(context, track);
-    if (track == null || client == null) return Future.value(null);
-    // Cache-first: works offline for downloaded items, and the cache may be
-    // the only source when the owning server is unreachable.
-    return client.fetchPlaybackExtras(track.id);
-  }
-
-  MediaServerClient? _clientFor(BuildContext context, MediaItem? track) {
-    if (track?.serverId == null) return null;
-    final provider = context.read<MultiServerProvider?>();
-    return provider?.getClientForServer(ServerId(track!.serverId!));
-  }
-
   @override
   void initState() {
     super.initState();
-    _extrasFuture = _loadExtras();
+    // Deferred: context.read is unsafe in initState (the element isn't
+    // mounted yet). didChangeDependencies fires once before the first build
+    // with a usable context.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _extrasFuture = _loadExtras();
+    });
+  }
+
+  Future<PlaybackExtras?> _loadExtras() {
+    final service = context.read<MusicPlaybackService>();
+    final track = service.currentTrack;
+    if (track?.serverId == null) return Future.value(null);
+    final provider = context.read<MultiServerProvider?>();
+    final client = provider?.getClientForServer(ServerId(track!.serverId!));
+    if (client == null) return Future.value(null);
+    // Cache-first: works offline for downloaded items, and the cache may be
+    // the only source when the owning server is unreachable.
+    return client.fetchPlaybackExtras(track.id);
   }
 
   @override
