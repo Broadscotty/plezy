@@ -938,7 +938,16 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_disposed) return;
     if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
-      if (isPlaying) {
+      // Flush the latest position on background so a task-swipe kill or quick
+      // exit preserves where the user actually was. The tracker only reports
+      // every ~10s tick, so killing right after a seek could otherwise save a
+      // stale position and make resume look broken. Fire-and-forget: the
+      // tracker already queues locally on failure.
+      final tracker = _tracker;
+      if (tracker != null) {
+        unawaited(tracker.sendProgress(isPlaying ? 'playing' : 'paused'));
+      }
+      if (isPlaying && PlatformDetector.isAppleTV()) {
         appLogger.d('App backgrounded on Apple TV — pausing music playback');
         unawaited(pause());
       }

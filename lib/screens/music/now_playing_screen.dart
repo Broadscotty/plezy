@@ -28,6 +28,7 @@ import '../../theme/mono_tokens.dart';
 import '../../utils/app_logger.dart';
 import '../../utils/formatters.dart';
 import '../../utils/desktop_window_padding.dart';
+import '../../widgets/video_controls/helpers/eager_horizontal_drag_recognizer.dart';
 import '../../utils/media_image_helper.dart';
 import '../../utils/music_navigation.dart';
 import '../../utils/platform_detector.dart';
@@ -1097,6 +1098,43 @@ class _NowPlayingSeekBarState extends State<_NowPlayingSeekBar> {
     return pendingMs;
   }
 
+  /// Eager-recognizer scrub start: claim the drag and map the pointer's x
+  /// position to a millisecond value across the full track width (mirrors
+  /// TimelineSlider's full-width mapping; the track insets ~24dp at the ends
+  /// which the clamps absorb).
+  void _startScrub(double dx, double trackWidth, double durationMs) {
+    if (trackWidth <= 0 || durationMs <= 0) return;
+    _keySeek.cancel();
+    setState(() {
+      _dragValueMs = ((dx / trackWidth) * durationMs).clamp(0.0, durationMs);
+    });
+  }
+
+  void _updateScrub(double dx, double trackWidth, double durationMs) {
+    if (_dragValueMs == null || trackWidth <= 0 || durationMs <= 0) return;
+    setState(() {
+      _dragValueMs = ((dx / trackWidth) * durationMs).clamp(0.0, durationMs);
+    });
+  }
+
+  /// Commit the scrub: pin the thumb to the committed target (same semantics
+  /// as the old onChangeEnd) and issue the seek. Also fired on gesture cancel
+  /// so the pin is never left holding a value the user didn't commit to.
+  void _endScrub() {
+    final value = _dragValueMs;
+    if (value == null) return;
+    final service = context.read<MusicPlaybackService>();
+    if (service.currentTrack?.globalKey == widget.trackKey) {
+      setState(() {
+        _dragValueMs = null;
+        _pendingSeekTargetMs = value;
+      });
+      unawaited(service.seek(Duration(milliseconds: value.round())));
+    } else {
+      setState(() => _dragValueMs = null);
+    }
+  }
+
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     final key = event.logicalKey;
 
@@ -1170,41 +1208,61 @@ class _NowPlayingSeekBarState extends State<_NowPlayingSeekBar> {
         return Column(
           mainAxisSize: .min,
           children: [
-            SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 4,
-                activeTrackColor: tk.text,
-                inactiveTrackColor: tk.outline,
-                thumbColor: tk.text,
-                trackGap: dragging ? 4 : 0,
-                thumbSize: const WidgetStatePropertyAll(Size(4, 18)),
-                thumbShape: dragging ? null : SliderComponentShape.noThumb,
-                overlayShape: SliderComponentShape.noOverlay,
-              ),
-              child: Slider(
-                max: hasDuration ? durationMs : 1,
-                value: positionMs,
-                onChangeStart: hasDuration
-                    ? (value) {
-                        _keySeek.cancel();
-                        setState(() => _dragValueMs = value);
-                      }
-                    : null,
-                onChanged: hasDuration ? (value) => setState(() => _dragValueMs = value) : null,
-                onChangeEnd: hasDuration
-                    ? (value) {
-                        if (service.currentTrack?.globalKey == widget.trackKey) {
-                          setState(() {
-                            _dragValueMs = null;
-                            _pendingSeekTargetMs = value;
-                          });
-                          unawaited(service.seek(Duration(milliseconds: value.round())));
-                        } else {
-                          setState(() => _dragValueMs = null);
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final trackWidth = constraints.maxWidth;
+                return RawGestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  // The Material Slider's slop-based drag recognizer loses
+                  // short drags on a narrow track (Fold cover, ~328dp) to the
+                  // arena — competing recognizers can win and silently eat the
+                  // gesture, so the seek never fires. Same bug the video
+                  // timeline had (#1302); the eager recognizer claims the
+                  // pointer at down so the scrubber owns every touch that
+                  // starts on it.
+                  gestures: hasDuration
+                      ? <Type, GestureRecognizerFactory>{
+                          EagerHorizontalDragGestureRecognizer:
+                              GestureRecognizerFactoryWithHandlers<EagerHorizontalDragGestureRecognizer>(
+                                () => EagerHorizontalDragGestureRecognizer(debugOwner: this)
+                                  ..dragStartBehavior = DragStartBehavior.down,
+                                (instance) {
+                                  instance.onStart = (details) =>
+                                      _startScrub(details.localPosition.dx, trackWidth, durationMs);
+                                  instance.onUpdate = (details) =>
+                                      _updateScrub(details.localPosition.dx, trackWidth, durationMs);
+                                  instance.onEnd = (_) => _endScrub();
+                                  instance.onCancel = _endScrub;
+                                },
+                              ),
                         }
-                      }
-                    : null,
-              ),
+                      : const <Type, GestureRecognizerFactory>{},
+                  child: ExcludeSemantics(
+                    child: IgnorePointer(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 4,
+                          activeTrackColor: tk.text,
+                          inactiveTrackColor: tk.outline,
+                          thumbColor: tk.text,
+                          trackGap: dragging ? 4 : 0,
+                          thumbSize: const WidgetStatePropertyAll(Size(4, 18)),
+                          thumbShape: dragging ? null : SliderComponentShape.noThumb,
+                          overlayShape: SliderComponentShape.noOverlay,
+                        ),
+                        // Visual-only: the eager recognizer above drives value
+                        // and seeks. Ignoring pointer input here prevents the
+                        // Slider's own recognizers from competing with ours.
+                        child: Slider(
+                          max: hasDuration ? durationMs : 1,
+                          value: positionMs,
+                          onChanged: (value) {},
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 2, 24, 0),
