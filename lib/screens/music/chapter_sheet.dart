@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../focus/focusable_list_tile.dart';
+import '../../widgets/focusable_list_tile.dart';
 import '../../i18n/strings.g.dart';
 import '../../media/ids.dart';
 import '../../media/media_item.dart';
@@ -69,7 +69,7 @@ class _ChapterSheetState extends State<ChapterSheet> {
     return Column(
       mainAxisSize: .min,
       children: [
-        const BottomSheetHeader(title: t.videoSettings.chapters),
+        const BottomSheetHeader(title: t.videoControls.chapters),
         ConstrainedBox(
           constraints: const BoxConstraints(maxHeight: 460),
           child: FutureBuilder<PlaybackExtras?>(
@@ -86,7 +86,7 @@ class _ChapterSheetState extends State<ChapterSheet> {
                 return Padding(
                   padding: const EdgeInsets.all(24),
                   child: Text(
-                    t.videoSettings.noChaptersAvailable,
+                    t.videoControls.noChaptersAvailable,
                     style: TextStyle(color: tk.textMuted),
                     textAlign: TextAlign.center,
                   ),

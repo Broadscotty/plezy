@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../focus/focusable_list_tile.dart';
+import '../../widgets/focusable_list_tile.dart';
 import '../../i18n/strings.g.dart';
 import '../../media/playback_rate.dart';
 import '../../services/music/music_playback_service.dart';

@@ -859,7 +859,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               state,
               icon: Symbols.bookmarks_rounded,
               active: false,
-              tooltip: t.videoSettings.chapters,
+              tooltip: t.videoControls.chapters,
               onPressed: () => unawaited(showChapterSheet(_sheetContext)),
               size: 22,
             ),
