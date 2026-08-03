@@ -1204,7 +1204,6 @@ class _NowPlayingSeekBarState extends State<_NowPlayingSeekBar> {
             ? _confirmSeekTarget(pendingSeek, livePositionMs) ?? pendingSeek
             : _dragValueMs ?? _keySeek.pendingPosition?.inMilliseconds.toDouble() ?? livePositionMs;
         final positionMs = hasDuration ? rawPositionMs.clamp(0.0, durationMs) : 0.0;
-        final dragging = _dragValueMs != null || _pendingSeekTargetMs != null;
 
         return Column(
           mainAxisSize: .min,
@@ -1246,10 +1245,13 @@ class _NowPlayingSeekBarState extends State<_NowPlayingSeekBar> {
                           activeTrackColor: tk.text,
                           inactiveTrackColor: tk.outline,
                           thumbColor: tk.text,
-                          trackGap: dragging ? 4 : 0,
-                          thumbSize: const WidgetStatePropertyAll(Size(4, 18)),
-                          thumbShape: dragging ? null : SliderComponentShape.noThumb,
-                          overlayShape: SliderComponentShape.noOverlay,
+                          // Always-visible dot so the current position is
+                          // obvious and grabbable on any screen size (the
+                          // hidden-at-rest thumb made the narrow Fold cover
+                          // especially hard to aim at).
+                          thumbSize: const WidgetStatePropertyAll(Size(12, 24)),
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
                         ),
                         // Visual-only: the eager recognizer above drives value
                         // and seeks. Ignoring pointer input here prevents the

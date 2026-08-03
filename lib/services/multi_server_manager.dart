@@ -52,7 +52,27 @@ class MultiServerManager {
     Duration connectivityDebounceDuration = const Duration(seconds: 2),
   }) : this._(plexClientFactory, connectivityChanges ?? _defaultConnectivityChanges, connectivityDebounceDuration);
 
-  MultiServerManager._(this._plexClientFactory, this._connectivityChanges, this._connectivityDebounceDuration);
+  MultiServerManager._(this._plexClientFactory, this._connectivityChanges, this._connectivityDebounceDuration) {
+    _startReconnectProbeTimer();
+  }
+
+  /// How often to re-probe while any server is offline. Keeps the app
+  /// self-healing: when a Plex (or Stremio addon) comes back on its own, the
+  /// next probe flips it online without the user hunting for a reconnect
+  /// button. No-op when everything is online, so healthy sessions stay quiet.
+  static const _reconnectProbeInterval = Duration(seconds: 45);
+
+  Timer? _reconnectProbeTimer;
+
+  void _startReconnectProbeTimer() {
+    _reconnectProbeTimer?.cancel();
+    _reconnectProbeTimer = Timer.periodic(_reconnectProbeInterval, (_) {
+      if (offlineServerIds.isEmpty) return;
+      unawaited(checkServerHealth().then((_) {
+        if (offlineServerIds.isNotEmpty) return reconnectOfflineServers();
+      }));
+    });
+  }
 
   static Stream<List<ConnectivityResult>> _defaultConnectivityChanges() => Connectivity().onConnectivityChanged;
 
@@ -1420,6 +1440,8 @@ class MultiServerManager {
 
   /// Dispose resources
   void dispose() {
+    _reconnectProbeTimer?.cancel();
+    _reconnectProbeTimer = null;
     disconnectAll();
     if (!_statusController.isClosed) {
       _statusController.close();

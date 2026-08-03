@@ -1,4 +1,5 @@
 import '../../exceptions/media_server_exceptions.dart';
+import '../../i18n/strings.g.dart';
 import '../../media/download_resolution.dart';
 import '../../media/episode_collection.dart';
 import '../../media/ids.dart';
@@ -322,7 +323,7 @@ class StremioDebridClient extends MediaServerClient {
         id: StremioItemId(parsed.type, '${split.showId}:${split.season}').toString(),
         backend: MediaBackend.debrid,
         kind: MediaKind.season,
-        title: meta.name,
+        title: t.common.seasonNumber(number: split.season!),
         parentTitle: meta.name,
         index: split.season,
         leafCount: seasonVideos.length,
@@ -402,7 +403,9 @@ class StremioDebridClient extends MediaServerClient {
         id: StremioItemId(parsed.type, '${split.showId}:$seasonNumber').toString(),
         backend: MediaBackend.debrid,
         kind: MediaKind.season,
-        title: meta?.name,
+        // Season tabs/chips render `title` directly — show "Season N", not
+        // the show name (which displayTitle still prefers via parentTitle).
+        title: t.common.seasonNumber(number: seasonNumber),
         parentTitle: meta?.name,
         index: seasonNumber,
         leafCount: seasonVideos.length,

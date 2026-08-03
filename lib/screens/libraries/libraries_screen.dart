@@ -10,6 +10,7 @@ import '../../focus/dpad_navigator.dart';
 import '../../focus/input_mode_tracker.dart';
 import '../../mixins/tab_navigation_mixin.dart';
 import '../../media/ids.dart';
+import '../../media/media_backend.dart';
 import '../../media/media_item.dart';
 import '../../media/media_library.dart';
 import '../../providers/hidden_libraries_provider.dart';
@@ -39,6 +40,9 @@ import 'tabs/library_playlists_tab.dart';
 enum LibraryTabType { recommended, browse, collections, playlists }
 
 List<LibraryTabType> _getVisibleTabs(MediaLibrary library) {
+  // Stremio (debrid) libraries only support catalog browsing — the
+  // recommended/collections/playlists tabs would all render empty.
+  if (library.backend == MediaBackend.debrid) return [LibraryTabType.browse];
   if (library.isShared) return [LibraryTabType.browse, LibraryTabType.playlists];
   return LibraryTabType.values;
 }

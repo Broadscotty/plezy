@@ -349,9 +349,12 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
       }
       if (generation != _generation || _player != player) return;
       _currentSource = source;
-      // Resolve resume position: local offline progress first, then server viewOffset
+      // Resolve resume position: local progress first (works for both local
+      // and streamed tracks — the offline queue stores progress locally
+      // whenever the server report fails, so resume must not depend on the
+      // server being reachable), then server viewOffset.
       Duration? resumePos;
-      if (source.isOffline && _offlineWatchService != null) {
+      if (_offlineWatchService != null) {
         try {
           final localOffset = await _offlineWatchService!.getLocalViewOffset(track.globalKey);
           if (localOffset != null && localOffset > 0) {
@@ -757,9 +760,12 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
         metadata: track,
         player: player,
         offlineWatchService: _offlineWatchService,
-        // Local files keep reporting online but queue locally when the
-        // server rejects the report — same policy as downloaded video.
-        queueOnOnlineFailure: source.isOffline && _offlineWatchService != null,
+        // Queue progress locally when the server rejects a report, even for
+        // streamed tracks. Without this an audiobook played while Plex is
+        // unreachable saves nothing, and resume looks broken on the next open
+        // (the server never got the position). The offline queue is the
+        // reliable position store; the server sync is best-effort.
+        queueOnOnlineFailure: _offlineWatchService != null,
         playMethod: source.playMethod ?? 'DirectPlay',
         playSessionId: source.playSessionId,
         mediaInfo: source.mediaInfo,
