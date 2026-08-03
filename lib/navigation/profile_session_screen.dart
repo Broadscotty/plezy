@@ -27,6 +27,7 @@ import '../database/app_database.dart';
 import '../screens/main_screen.dart';
 import '../services/api_cache.dart';
 import '../services/catalog/catalog_library_matcher.dart';
+import '../services/music/book_chapter_provider.dart';
 import '../services/music/music_playback_service.dart';
 import '../services/music/music_playback_service_impl.dart';
 import '../services/offline_watch_sync_service.dart';
@@ -252,6 +253,15 @@ class _ProfileSessionScreenState extends State<ProfileSessionScreen> {
                   serverManager: context.read<MultiServerProvider>().serverManager,
                   database: context.read<AppDatabase>(),
                   offlineWatchService: context.read<OfflineWatchSyncService>(),
+                ),
+              ),
+              // Whole-book chapter list (audiobooks) shared across the
+              // chapter sheet, now-playing screen, and mini player so each
+              // doesn't independently re-fetch chapters for every track.
+              ChangeNotifierProvider<BookChapterProvider>(
+                create: (context) => BookChapterProvider(
+                  service: context.read<MusicPlaybackService>(),
+                  multiServer: context.read<MultiServerProvider>(),
                 ),
               ),
               ChangeNotifierProvider(create: (context) => WatchTogetherProvider()),

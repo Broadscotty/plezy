@@ -6,10 +6,8 @@ import 'package:provider/provider.dart';
 
 import '../../widgets/focusable_list_tile.dart';
 import '../../i18n/strings.g.dart';
-import '../../media/ids.dart';
-import '../../media/media_source_info.dart';
-import '../../providers/multi_server_provider.dart';
-import '../../services/music/music_playback_service.dart';
+import '../../media/book_chapters.dart';
+import '../../services/music/book_chapter_provider.dart';
 import '../../theme/mono_tokens.dart';
 import '../../utils/formatters.dart';
 import '../../widgets/app_icon.dart';
@@ -23,75 +21,17 @@ Future<void> showChapterSheet(BuildContext context) {
   return OverlaySheetController.of(context).show<void>(showDragHandle: true, builder: (_) => const ChapterSheet());
 }
 
-/// Audiobook chapter list for the music player. Fetches chapters through the
-/// owning server client (cache-first, so downloaded audiobooks still show
-/// chapters while offline), highlights the current chapter against the live
-/// playback position, and taps seek to the chapter start.
-class ChapterSheet extends StatefulWidget {
+/// Whole-book chapter list for the music player. Reads [BookChapterProvider]
+/// — chapters for every track in the queue, merged into one book-relative
+/// list — highlights the chapter at the live playback position, and taps
+/// jump/seek to the chapter start (crossing track boundaries when needed).
+class ChapterSheet extends StatelessWidget {
   const ChapterSheet({super.key});
-
-  @override
-  State<ChapterSheet> createState() => _ChapterSheetState();
-}
-
-class _ChapterSheetState extends State<ChapterSheet> {
-  Future<PlaybackExtras?>? _extrasFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    // Deferred: context.read is unsafe in initState (the element isn't
-    // mounted yet). didChangeDependencies fires once before the first build
-    // with a usable context.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _extrasFuture = _loadExtras();
-    });
-  }
-
-  Future<PlaybackExtras?> _loadExtras() {
-    final service = context.read<MusicPlaybackService>();
-    final track = service.currentTrack;
-    final trackServerId = track?.serverId;
-    if (trackServerId == null) return Future.value(null);
-    final provider = context.read<MultiServerProvider?>();
-    final client = provider?.getClientForServer(ServerId(trackServerId));
-    if (client == null) return Future.value(null);
-    // Force a fresh fetch: the cache-first path serves any row written for
-    // this ratingKey forever (the ApiCache has no staleness), and an early
-    // row cached before the file carried chapter tags would otherwise hide
-    // real chapters permanently — the exact failure Chronicle never hits
-    // because it has no cache. forceRefresh overwrites the stale row with
-    // the live response; offline it falls back to whatever is cached.
-    return client.fetchPlaybackExtras(track!.id, forceRefresh: true).then((extras) {
-      if (extras.chapters.isNotEmpty) return extras;
-      // Whole-track fallback: Plex doesn't surface embedded chapter atoms for
-      // audiobooks (Chronicle behaves the same), so when the server returns
-      // none we synthesize one chapter per track, mirroring Chronicle's
-      // `tracks.asChapterList`. This keeps chapter seek/skip usable for
-      // multi-part audiobooks instead of showing an empty sheet.
-      final fallback = <MediaChapter>[];
-      var cumulativeMs = 0;
-      for (final queueItem in service.queue) {
-        final durationMs = queueItem.durationMs ?? 0;
-        fallback.add(
-          MediaChapter(
-            id: queueItem.id.hashCode,
-            index: fallback.length + 1,
-            startTimeOffset: cumulativeMs,
-            endTimeOffset: cumulativeMs + durationMs,
-            title: queueItem.title,
-          ),
-        );
-        cumulativeMs += durationMs;
-      }
-      return PlaybackExtras(chapters: fallback, markers: extras.markers);
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
     final tk = tokens(context);
-    final service = context.watch<MusicPlaybackService>();
+    final bookChapters = context.watch<BookChapterProvider>();
     final colorScheme = Theme.of(context).colorScheme;
 
     return Column(
@@ -100,61 +40,43 @@ class _ChapterSheetState extends State<ChapterSheet> {
         BottomSheetHeader(title: t.videoControls.chapters),
         ConstrainedBox(
           constraints: const BoxConstraints(maxHeight: 460),
-          child: FutureBuilder<PlaybackExtras?>(
-            future: _extrasFuture,
-            builder: (context, snapshot) {
-              final chapters = snapshot.data?.chapters ?? const <MediaChapter>[];
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Padding(
-                  padding: EdgeInsets.all(32),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              if (chapters.isEmpty) {
-                return Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    t.videoControls.noChaptersAvailable,
-                    style: TextStyle(color: tk.textMuted),
-                    textAlign: TextAlign.center,
-                  ),
-                );
-              }
-              return StreamBuilder<Duration>(
-                stream: service.positionStream,
-                initialData: service.position,
-                builder: (context, positionSnapshot) {
-                  final position = positionSnapshot.data ?? Duration.zero;
-                  final currentIndex = MediaChapter.indexAtPosition(position, chapters);
-                  return ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: chapters.length,
-                    itemBuilder: (context, index) {
-                      final chapter = chapters[index];
-                      final isCurrent = index == currentIndex;
-                      return FocusableListTile(
-                        title: Text(
-                          chapter.label,
-                          style: TextStyle(color: isCurrent ? colorScheme.primary : null),
-                        ),
-                        subtitle: Text(formatDurationTextual(chapter.startTime.inMilliseconds)),
-                        leading: isCurrent ? AppIcon(Symbols.play_arrow_rounded, fill: 1, color: colorScheme.primary) : null,
-                        onTap: () => unawaited(_seekTo(context, chapter)),
-                      );
-                    },
-                  );
-                },
-              );
-            },
-          ),
+          child: _buildBody(context, tk, colorScheme, bookChapters),
         ),
       ],
     );
   }
 
-  Future<void> _seekTo(BuildContext context, MediaChapter chapter) async {
-    final service = context.read<MusicPlaybackService>();
-    await service.seek(chapter.startTime);
+  Widget _buildBody(BuildContext context, MonoTokens tk, ColorScheme colorScheme, BookChapterProvider bookChapters) {
+    if (bookChapters.loading) {
+      return const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()));
+    }
+    final chapters = bookChapters.chapters;
+    if (chapters.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(t.videoControls.noChaptersAvailable, style: TextStyle(color: tk.textMuted), textAlign: TextAlign.center),
+      );
+    }
+    final currentIndex = bookChapters.currentChapterIndex;
+    return ListView.builder(
+      shrinkWrap: true,
+      itemCount: chapters.length,
+      itemBuilder: (context, index) {
+        final bookChapter = chapters[index];
+        final isCurrent = index == currentIndex;
+        return FocusableListTile(
+          title: Text(bookChapter.label, style: TextStyle(color: isCurrent ? colorScheme.primary : null)),
+          subtitle: Text(formatDurationTextual(bookChapter.bookStartOffset.inMilliseconds)),
+          leading: isCurrent ? AppIcon(Symbols.play_arrow_rounded, fill: 1, color: colorScheme.primary) : null,
+          onTap: () => unawaited(_jumpTo(context, bookChapter)),
+        );
+      },
+    );
+  }
+
+  Future<void> _jumpTo(BuildContext context, BookChapter chapter) async {
+    final bookChapters = context.read<BookChapterProvider>();
+    await bookChapters.jumpToChapter(chapter);
     if (context.mounted) OverlaySheetController.of(context).close();
   }
 }

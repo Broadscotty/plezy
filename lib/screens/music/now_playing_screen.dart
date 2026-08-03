@@ -27,6 +27,7 @@ import '../../providers/multi_server_provider.dart';
 import '../../services/device_performance.dart';
 import '../../services/download_artwork_service.dart';
 import '../../services/download_storage_service.dart';
+import '../../services/music/book_chapter_provider.dart';
 import '../../services/music/music_playback_service.dart';
 import '../../theme/mono_motion.dart';
 import '../../theme/mono_tokens.dart';
@@ -454,6 +455,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     style: textTheme.bodyLarge?.copyWith(color: tk.textMuted),
                   ),
                 ],
+                _buildChapterSubtitle(centered: false),
                 const SizedBox(height: 28),
                 _buildSeekBar(track),
                 const SizedBox(height: 8),
@@ -678,7 +680,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ),
             ),
           ),
+        _buildChapterSubtitle(centered: centered),
       ],
+    );
+  }
+
+  /// Current chapter title (audiobooks), shown under the artist line.
+  /// Empty when the book has no real embedded chapter data — see
+  /// [BookChapterProvider.hasChapters] — so this doesn't show a redundant
+  /// line for plain music or single-chapter-per-track fallback books.
+  Widget _buildChapterSubtitle({required bool centered}) {
+    final tk = tokens(context);
+    final textTheme = Theme.of(context).textTheme;
+    final bookChapters = context.watch<BookChapterProvider>();
+    final chapter = bookChapters.currentChapter;
+    if (!bookChapters.hasChapters || chapter == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Text(
+        chapter.label,
+        maxLines: 1,
+        overflow: .ellipsis,
+        textAlign: centered ? TextAlign.center : TextAlign.start,
+        style: textTheme.bodySmall?.copyWith(color: tk.textMuted),
+      ),
     );
   }
 
@@ -818,6 +843,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _buildUtilityRow({required bool showQueueButton}) {
+    final bookChapters = context.watch<BookChapterProvider>();
+    final showChapterSkip = bookChapters.hasChapters;
     return Center(
       child: FocusableActionBar(
         key: _utilityBarKey,
@@ -852,6 +879,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               size: 22,
             ),
           ),
+          if (showChapterSkip)
+            FocusableAction(
+              debugLabel: 'np_previous_chapter',
+              onPressed: () => unawaited(bookChapters.skipToPreviousChapter()),
+              builder: (context, state) => _transportIcon(
+                state,
+                icon: Symbols.skip_previous_rounded,
+                active: bookChapters.hasPreviousChapter,
+                tooltip: t.videoControls.previousChapterButton,
+                onPressed: () => unawaited(bookChapters.skipToPreviousChapter()),
+                size: 22,
+              ),
+            ),
           FocusableAction(
             debugLabel: 'np_chapters',
             onPressed: () => unawaited(showChapterSheet(_sheetContext)),
@@ -864,6 +904,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               size: 22,
             ),
           ),
+          if (showChapterSkip)
+            FocusableAction(
+              debugLabel: 'np_next_chapter',
+              onPressed: () => unawaited(bookChapters.skipToNextChapter()),
+              builder: (context, state) => _transportIcon(
+                state,
+                icon: Symbols.skip_next_rounded,
+                active: bookChapters.hasNextChapter,
+                tooltip: t.videoControls.nextChapterButton,
+                onPressed: () => unawaited(bookChapters.skipToNextChapter()),
+                size: 22,
+              ),
+            ),
           if (showQueueButton)
             FocusableAction(
               debugLabel: 'np_queue',
