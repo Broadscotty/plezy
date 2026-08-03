@@ -301,16 +301,16 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
     _queue.load(tracks, startIndex: startIndex, shuffle: shuffle);
     _playContext = playContext;
     _consecutiveFailures = 0;
-    await _openCurrent(generation, play: autoplay);
+    // Session start (user-picked track): refresh the server view offset so
+    // resume is accurate. Auto-advance within a session goes through
+    // [_advanceTo] instead and skips this — no per-track network fetch on
+    // gapless transitions.
+    await _openCurrent(generation, play: autoplay, refreshServerOffset: true);
   }
-
-  // ---------------------------------------------------------------------
-  // Opening / advancing
-  // ---------------------------------------------------------------------
 
   /// Resolve and open the queue's current track. All failure handling funnels
   /// through [_handlePlaybackFailure].
-  Future<void> _openCurrent(int generation, {bool play = true}) async {
+  Future<void> _openCurrent(int generation, {bool play = true, bool refreshServerOffset = false}) async {
     final track = _queue.current;
     if (track == null) return;
     _openingGeneration = generation;
@@ -352,7 +352,7 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
       // Resolve resume position: local progress first (works for both local
       // and streamed tracks — the offline queue stores progress locally
       // whenever the server report fails, so resume must not depend on the
-      // server being reachable), then server viewOffset.
+      // server being reachable), then a fresh server viewOffset.
       Duration? resumePos;
       if (_offlineWatchService != null) {
         try {
@@ -363,6 +363,28 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
           }
         } catch (e) {
           appLogger.d('Failed to read local view offset for ${track.id}', error: e);
+        }
+      }
+      if (resumePos == null && refreshServerOffset) {
+        // The queue item's viewOffsetMs is whatever it was when the queue was
+        // built (browse metadata) — it does not move as playback progresses.
+        // Fetch the current server-side position so a streamed audiobook
+        // resumes where it actually stopped, not where it was listed. Same
+        // policy as the video player, which refreshes metadata at open.
+        // Only on session start (user-picked track): gapless auto-advance
+        // must not pay a network fetch per track.
+        try {
+          final client = _clientFor(track);
+          final fresh = client == null
+              ? null
+              : await client.fetchItem(track.id).timeout(const Duration(seconds: 4));
+          final freshOffset = fresh?.viewOffsetMs;
+          if (freshOffset != null && freshOffset > 0) {
+            resumePos = Duration(milliseconds: freshOffset);
+            appLogger.d('Resuming audio from server viewOffset: ${freshOffset}ms');
+          }
+        } catch (e) {
+          appLogger.d('Failed to refresh audio view offset for ${track.id}', error: e);
         }
       }
       if (resumePos == null && track.viewOffsetMs != null && track.viewOffsetMs! > 0) {

@@ -530,6 +530,15 @@ class _LibrariesScreenState extends State<LibrariesScreen>
 
   // Refresh every loaded tab for the selected library.
   void _refreshSelectedLibraryTabs() {
+    // Re-probe server health first so a server that came back online (e.g.
+    // Plex restarted while the app sat open) is reflected in the refresh —
+    // otherwise the tabs reload against stale offline state.
+    unawaited(_probeServersThenRefresh());
+  }
+
+  Future<void> _probeServersThenRefresh() async {
+    final multiServer = context.read<MultiServerProvider>();
+    await multiServer.checkServerHealth();
     for (var i = 0; i < _visibleTabs.length; i++) {
       final Object? tabState = _getTabState(i);
       if (tabState is Refreshable) {

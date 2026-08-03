@@ -597,6 +597,20 @@ class _DiscoverScreenState extends State<DiscoverScreen>
     unawaited(_discover.load());
   }
 
+  /// Refresh icon handler: re-probe server health first so a server that came
+  /// back (e.g. Plex restarted) flips online before content reloads, then
+  /// force a full discover load.
+  void _refreshWithHealthProbe() {
+    unawaited(() async {
+      try {
+        await context.read<MultiServerProvider>().checkServerHealth();
+      } catch (e) {
+        appLogger.d('Discover refresh health probe failed', error: e);
+      }
+      if (mounted) unawaited(_discover.load());
+    }());
+  }
+
   /// Get icon for hub based on its title
   IconData _getHubIcon(String title) {
     final lowerTitle = title.toLowerCase();
@@ -855,7 +869,7 @@ class _DiscoverScreenState extends State<DiscoverScreen>
                       FocusableAction(
                         icon: Symbols.refresh_rounded,
                         iconColor: foregroundColor,
-                        onPressed: _discover.load,
+                        onPressed: _refreshWithHealthProbe,
                       ),
                       // Watch Together
                       FocusableAction(
