@@ -59,7 +59,7 @@ class _ChapterSheetState extends State<ChapterSheet> {
     // Cache-first: works offline for downloaded items, and the cache may be
     // the only source when the owning server is unreachable.
     return client.fetchPlaybackExtras(track!.id).then((extras) {
-      if (extras == null || extras.chapters.isNotEmpty) return extras;
+      if (extras.chapters.isNotEmpty) return extras;
       // Whole-track fallback: Plex doesn't surface embedded chapter atoms for
       // audiobooks (Chronicle behaves the same), so when the server returns
       // none we synthesize one chapter per track, mirroring Chronicle's
