@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import '../../media/ids.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -8,14 +6,9 @@ import '../../focus/focusable_action_bar.dart';
 import '../../media/media_item.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/multi_server_provider.dart';
-import '../../services/music/music_playback_service.dart';
-import '../../theme/mono_tokens.dart';
-import '../../utils/music_navigation.dart';
 import '../../models/download_models.dart';
-import '../../widgets/app_icon.dart';
 import '../../widgets/background_download_warning_banner.dart';
 import '../../widgets/focusable_tab_chip.dart';
-import '../../widgets/music/mini_player.dart';
 import '../../services/settings_service.dart';
 import '../../widgets/settings_builder.dart';
 import '../../utils/global_key_utils.dart';
@@ -49,10 +42,10 @@ class DownloadsScreenState extends State<DownloadsScreen>
 
   @override
   List<FocusNode> get tabChipFocusNodes => [
-    _queueTabChipFocusNode,
     _tvShowsTabChipFocusNode,
     _moviesTabChipFocusNode,
     _musicTabChipFocusNode,
+    _queueTabChipFocusNode,
   ];
 
   @override
@@ -117,13 +110,13 @@ class DownloadsScreenState extends State<DownloadsScreen>
     if (PlatformDetector.shouldUseSideNavigation(context)) {
       return TabChipStrip(
         children: [
-          _buildTabChip(t.downloads.manage, 0),
+          _buildTabChip(t.downloads.tvShows, 0),
           const SizedBox(width: 8),
-          _buildTabChip(t.downloads.tvShows, 1),
+          _buildTabChip(t.downloads.movies, 1),
           const SizedBox(width: 8),
-          _buildTabChip(t.downloads.movies, 2),
+          _buildTabChip(t.downloads.music, 2),
           const SizedBox(width: 8),
-          _buildTabChip(t.downloads.music, 3),
+          _buildTabChip(t.downloads.manage, 3),
         ],
       );
     }
@@ -184,13 +177,13 @@ class DownloadsScreenState extends State<DownloadsScreen>
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         children: [
-                          _buildTabChip(t.downloads.manage, 0),
+                          _buildTabChip(t.downloads.tvShows, 0),
                           const SizedBox(width: 8),
-                          _buildTabChip(t.downloads.tvShows, 1),
+                          _buildTabChip(t.downloads.movies, 1),
                           const SizedBox(width: 8),
-                          _buildTabChip(t.downloads.movies, 2),
+                          _buildTabChip(t.downloads.music, 2),
                           const SizedBox(width: 8),
-                          _buildTabChip(t.downloads.music, 3),
+                          _buildTabChip(t.downloads.manage, 3),
                         ],
                       ),
                     ),
@@ -200,6 +193,17 @@ class DownloadsScreenState extends State<DownloadsScreen>
                   child: TabBarView(
                     controller: tabController,
                     children: [
+                      _DownloadsGridContent(
+                        type: DownloadType.tvShows,
+                        suppressAutoFocus: suppressAutoFocus,
+                        onBack: focusTabBar,
+                      ),
+                      _DownloadsGridContent(
+                        type: DownloadType.movies,
+                        suppressAutoFocus: suppressAutoFocus,
+                        onBack: focusTabBar,
+                      ),
+                      _DownloadedMusicContent(suppressAutoFocus: suppressAutoFocus, onBack: focusTabBar),
                       Consumer2<DownloadProvider, MultiServerProvider>(
                         builder: (context, downloadProvider, serverProvider, _) {
                           // Resolve the owning server's client from a download's
@@ -236,17 +240,6 @@ class DownloadsScreenState extends State<DownloadsScreen>
                           );
                         },
                       ),
-                      _DownloadsGridContent(
-                        type: DownloadType.tvShows,
-                        suppressAutoFocus: suppressAutoFocus,
-                        onBack: focusTabBar,
-                      ),
-                      _DownloadsGridContent(
-                        type: DownloadType.movies,
-                        suppressAutoFocus: suppressAutoFocus,
-                        onBack: focusTabBar,
-                      ),
-                      _DownloadedMusicContent(suppressAutoFocus: suppressAutoFocus, onBack: focusTabBar),
                     ],
                   ),
                 ),
