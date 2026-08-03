@@ -147,13 +147,20 @@ class ActiveProfileBinder {
 
   /// Escalation for [serverManager.onPlexReconnectEscalate]: the periodic
   /// reconnect keeps failing, which usually means the cached server snapshot
-  /// is stale (endpoints changed while the app sat open). Re-running the
-  /// active profile bind re-fetches the server list from plex.tv with the
-  /// correct per-profile token, suppresses PIN prompts for passive rebinds,
-  /// and reconnects offline servers with fresh endpoints — the exact path
-  /// that works at bind time. Coalesced (one in-flight) and rate-limited
-  /// (5 min cooldown) so a genuine outage can't hammer plex.tv on the 45s
-  /// probe cycle.
+  /// is stale (endpoints changed while the app sat open).
+  ///
+  /// A full [rebindActive] is the wrong tool here: for a Plex Home profile
+  /// that already bound once this session, the rebind's passive-token policy
+  /// suppresses the PIN-gated /switch mint, returns an empty bind result,
+  /// and [ActiveProfileBinder._runRebindOnce] then sweeps every non-visible
+  /// server out of the manager — turning a stale-endpoint outage into a
+  /// "restart the app" reset. Instead, re-discover the server list directly
+  /// with the cached user-token (the same one cold-start auto-resume uses,
+  /// no PIN required): plex.tv `/resources` returns fresh connection
+  /// metadata, and [MultiServerManager.refreshTokensForProfile] rotates the
+  /// snapshots and reconnects offline servers in place. Coalesced (one
+  /// in-flight) and rate-limited (5 min cooldown) so a genuine outage can't
+  /// hammer plex.tv on the 45s probe cycle.
   Future<void> _escalatePlexReconnect(ServerId serverId, PlexServer staleServer) async {
     if (!_started) return;
     if (_reconnectEscalationRunning) return;
@@ -163,14 +170,88 @@ class ActiveProfileBinder {
 
     _reconnectEscalationRunning = true;
     try {
-      appLogger.i('Plex reconnect escalation: re-binding profile to rediscover ${staleServer.name}');
-      await rebindActive();
+      final profile = activeProfile.active;
+      if (profile == null) return;
+      if (!profile.isPlexHome || profile.parentConnectionId == null) {
+        // Local (non-Home) profiles bind from the join-row user-token without
+        // any PIN suppression, so the full rebind is safe and refreshes every
+        // connection. Only Plex Home hits the passive-mint dead end.
+        appLogger.i('Plex reconnect escalation: full rebind to rediscover ${staleServer.name}');
+        await rebindActive();
+        return;
+      }
+      final rediscovered = await _rediscoverPlexHomeWithCachedToken(profile);
+      if (!rediscovered) {
+        // plex.tv unreachable or no cached token: leave the servers exactly
+        // as they are (offline, still registered). Do NOT fall back to a
+        // full rebind here — its empty passive result would wipe the
+        // manager's server set. The 45s probe re-escalates after the
+        // cooldown.
+        appLogger.w(
+          'Plex reconnect escalation: rediscovery failed for ${profile.displayName}; '
+          'keeping ${staleServer.name} registered but offline',
+        );
+      }
     } catch (e, stackTrace) {
       appLogger.w('Plex reconnect escalation failed', error: e, stackTrace: stackTrace);
     } finally {
       _reconnectEscalationRunning = false;
       _lastReconnectEscalationAt = DateTime.now();
     }
+  }
+
+  /// Re-fetch the server list from plex.tv using the profile's cached
+  /// user-token (no PIN mint, no dialog) and reconnect servers with the
+  /// fresh connection metadata. Returns true when plex.tv answered with a
+  /// non-empty server list; individual server bind results are logged.
+  Future<bool> _rediscoverPlexHomeWithCachedToken(Profile profile) async {
+    final parentId = profile.parentConnectionId!;
+    final homeUuid = profile.plexHomeUserUuid;
+    if (homeUuid == null) return false;
+
+    final auth = await _ensureAuth();
+    if (!_started) return false;
+    final joinRows = await profileConnections.listForProfile(profile.id);
+    final connectionsById = {for (final c in await connections.list()) c.id: c};
+    final account = switch (connectionsById[parentId]) {
+      final PlexAccountConnection a => a,
+      _ => null,
+    };
+    if (account == null) return false;
+
+    ProfileConnection? pc;
+    for (final row in joinRows) {
+      if (row.connectionId == parentId) {
+        pc = row;
+        break;
+      }
+    }
+    final cachedToken = pc?.userToken;
+    if (cachedToken == null || cachedToken.isEmpty) {
+      appLogger.w(
+        'ActiveProfileBinder: no cached user-token for ${profile.displayName}; cannot rediscover without PIN prompt',
+      );
+      return false;
+    }
+
+    appLogger.i(
+      'Plex reconnect escalation: re-discovering servers for ${profile.displayName} via cached token',
+    );
+    final servers = await auth.fetchServers(cachedToken);
+    if (servers.isEmpty) {
+      appLogger.w('Plex reconnect escalation: plex.tv returned 0 servers for ${profile.displayName}');
+      return false;
+    }
+    // Persist the fresh list so the next cold start binds from current URIs.
+    unawaited(_persistRefreshedServers(account, servers));
+    final boundIds = await serverManager.refreshTokensForProfile(
+      account.copyWith(servers: servers),
+      profileId: profile.id,
+    );
+    appLogger.i(
+      'Plex reconnect escalation: reconnected ${boundIds.length}/${servers.length} servers for ${profile.displayName}',
+    );
+    return true;
   }
 
   void start() {

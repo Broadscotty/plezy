@@ -23,7 +23,9 @@ import '../../media/stepped_seek.dart';
 import '../../media/media_server_client.dart';
 import '../../mixins/context_menu_tap_mixin.dart';
 import '../../services/device_performance.dart';
+import '../../services/download_storage_service.dart';
 import '../../services/music/music_playback_service.dart';
+import '../../providers/download_provider.dart';
 import '../../theme/mono_motion.dart';
 import '../../theme/mono_tokens.dart';
 import '../../utils/app_logger.dart';
@@ -862,6 +864,7 @@ class _Artwork extends StatelessWidget {
   Widget build(BuildContext context) {
     final tk = tokens(context);
     final isPlaying = context.select<MusicPlaybackService, bool>((s) => s.isPlaying);
+    final localFilePath = client == null ? _offlineArtworkPath(context, track) : null;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -880,6 +883,7 @@ class _Artwork extends StatelessWidget {
             child: OptimizedMediaImage(
               client: client,
               imagePath: track.thumbPath,
+              localFilePath: localFilePath,
               imageType: ImageType.square,
               width: side,
               height: side,
@@ -908,6 +912,7 @@ class _Background extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tk = tokens(context);
+    final localFilePath = client == null ? _offlineArtworkPath(context, track) : null;
     if (DevicePerformance.isReduced || track.thumbPath == null) {
       return ColoredBox(color: tk.bg);
     }
@@ -922,6 +927,7 @@ class _Background extends StatelessWidget {
             child: OptimizedMediaImage(
               client: client,
               imagePath: track.thumbPath,
+              localFilePath: localFilePath,
               imageType: ImageType.square,
               fit: BoxFit.cover,
             ),
@@ -1304,4 +1310,18 @@ class _NowPlayingSeekBarState extends State<_NowPlayingSeekBar> {
       ),
     );
   }
+}
+
+/// Local artwork for offline playback: when the server client is unavailable
+/// (e.g. Plex offline), resolve the downloaded artwork file for the track so
+/// the now-playing cover and background show the real album art instead of the
+/// generic fallback icon. Mirrors the poster fallback used by media cards.
+/// Missing local files are safe — [OptimizedMediaImage] degrades to the
+/// network image / fallback icon.
+String? _offlineArtworkPath(BuildContext context, MediaItem track) {
+  if (track.serverId == null || track.thumbPath == null) return null;
+  final downloadProvider = context.read<DownloadProvider?>();
+  if (downloadProvider == null) return null;
+  final artwork = downloadProvider.getArtworkPaths(track.globalKey);
+  return artwork?.getLocalPath(DownloadStorageService.instance, ServerId(track.serverId!));
 }

@@ -15,6 +15,7 @@ import '../../mixins/grid_focus_node_mixin.dart';
 import '../../models/download_models.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/multi_server_provider.dart';
+import '../../services/download_storage_service.dart';
 import '../../services/music/music_playback_service.dart';
 import '../../theme/mono_tokens.dart';
 import '../../utils/app_logger.dart';
@@ -284,6 +285,17 @@ class _AlbumDetailScreenState extends BaseMediaListDetailScreen<AlbumDetailScree
 
   int get _totalDurationMs => items.fold(0, (sum, item) => sum + (item.durationMs ?? 0));
 
+  /// Local artwork when the album's server is offline: the album header and
+  /// now-playing cover fall back to the downloaded artwork file instead of the
+  /// generic fallback icon. Mirrors the media-card poster fallback.
+  String? _offlineArtworkPath(MediaItem album) {
+    if (album.serverId == null || album.thumbPath == null) return null;
+    final downloadProvider = context.read<DownloadProvider?>();
+    if (downloadProvider == null) return null;
+    final artwork = downloadProvider.getArtworkPaths(album.globalKey);
+    return artwork?.getLocalPath(DownloadStorageService.instance, ServerId(album.serverId!));
+  }
+
   Widget _buildHeader() {
     final tk = tokens(context);
     final textTheme = Theme.of(context).textTheme;
@@ -301,6 +313,7 @@ class _AlbumDetailScreenState extends BaseMediaListDetailScreen<AlbumDetailScree
       child: OptimizedMediaImage(
         client: client,
         imagePath: widget.album.thumbPath,
+        localFilePath: client == null ? _offlineArtworkPath(widget.album) : null,
         imageType: ImageType.square,
         width: size,
         height: size,

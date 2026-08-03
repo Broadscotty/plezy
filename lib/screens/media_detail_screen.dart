@@ -4528,8 +4528,12 @@ class _MediaDetailScreenState extends State<MediaDetailScreen>
         }
       }
     } else {
-      // For movies or episodes
-      if (metadata.viewOffsetMs != null && metadata.viewOffsetMs! > 0) {
+      // For movies or episodes. Read through the fresh watch-state layer so
+      // locally tracked progress (offline/Stremio sessions) surfaces the
+      // resume icon the same way it drives the progress bar — the raw
+      // metadata snapshot can lag the session patch.
+      final fresh = _fresh(metadata);
+      if (fresh.viewOffsetMs != null && fresh.viewOffsetMs! > 0) {
         return Symbols.resume_rounded; // Resume icon
       }
     }
