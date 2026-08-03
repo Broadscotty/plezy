@@ -7,7 +7,6 @@ import 'package:provider/provider.dart';
 import '../../widgets/focusable_list_tile.dart';
 import '../../i18n/strings.g.dart';
 import '../../media/ids.dart';
-import '../../media/media_item.dart';
 import '../../media/media_source_info.dart';
 import '../../providers/multi_server_provider.dart';
 import '../../services/music/music_playback_service.dart';
