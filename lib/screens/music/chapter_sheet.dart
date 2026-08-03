@@ -68,7 +68,7 @@ class _ChapterSheetState extends State<ChapterSheet> {
       final fallback = <MediaChapter>[];
       var cumulativeMs = 0;
       for (final queueItem in service.queue) {
-        final durationMs = queueItem.duration?.inMilliseconds ?? 0;
+        final durationMs = queueItem.durationMs ?? 0;
         fallback.add(
           MediaChapter(
             id: queueItem.id.hashCode,
