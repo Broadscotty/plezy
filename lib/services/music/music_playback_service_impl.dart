@@ -362,9 +362,10 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
       // whenever the server report fails, so resume must not depend on the
       // server being reachable), then a fresh server viewOffset.
       Duration? resumePos;
-      if (_offlineWatchService != null) {
+      final offlineWatch = _offlineWatchService;
+      if (offlineWatch != null) {
         try {
-          final localOffset = await _offlineWatchService!.getLocalViewOffset(track.globalKey);
+          final localOffset = await offlineWatch.getLocalViewOffset(track.globalKey);
           if (localOffset != null && localOffset > 0) {
             resumePos = Duration(milliseconds: localOffset);
             appLogger.d('Resuming audio from local progress: ${localOffset}ms');
@@ -1060,7 +1061,7 @@ class MusicPlaybackServiceImpl extends MusicPlaybackService with WidgetsBindingO
     try {
       await player.setRate(_playbackSpeed);
     } catch (e) {
-      appLogger.d('Failed to reapply music playback speed ${_playbackSpeed}', error: e);
+      appLogger.d('Failed to reapply music playback speed $_playbackSpeed', error: e);
     }
   }
 
