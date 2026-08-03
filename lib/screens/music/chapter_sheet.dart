@@ -56,9 +56,13 @@ class _ChapterSheetState extends State<ChapterSheet> {
     final provider = context.read<MultiServerProvider?>();
     final client = provider?.getClientForServer(ServerId(trackServerId));
     if (client == null) return Future.value(null);
-    // Cache-first: works offline for downloaded items, and the cache may be
-    // the only source when the owning server is unreachable.
-    return client.fetchPlaybackExtras(track!.id).then((extras) {
+    // Force a fresh fetch: the cache-first path serves any row written for
+    // this ratingKey forever (the ApiCache has no staleness), and an early
+    // row cached before the file carried chapter tags would otherwise hide
+    // real chapters permanently — the exact failure Chronicle never hits
+    // because it has no cache. forceRefresh overwrites the stale row with
+    // the live response; offline it falls back to whatever is cached.
+    return client.fetchPlaybackExtras(track!.id, forceRefresh: true).then((extras) {
       if (extras.chapters.isNotEmpty) return extras;
       // Whole-track fallback: Plex doesn't surface embedded chapter atoms for
       // audiobooks (Chronicle behaves the same), so when the server returns
