@@ -52,13 +52,14 @@ class _ChapterSheetState extends State<ChapterSheet> {
   Future<PlaybackExtras?> _loadExtras() {
     final service = context.read<MusicPlaybackService>();
     final track = service.currentTrack;
-    if (track?.serverId == null) return Future.value(null);
+    final trackServerId = track?.serverId;
+    if (trackServerId == null) return Future.value(null);
     final provider = context.read<MultiServerProvider?>();
-    final client = provider?.getClientForServer(ServerId(track!.serverId!));
+    final client = provider?.getClientForServer(ServerId(trackServerId));
     if (client == null) return Future.value(null);
     // Cache-first: works offline for downloaded items, and the cache may be
     // the only source when the owning server is unreachable.
-    return client.fetchPlaybackExtras(track.id);
+    return client.fetchPlaybackExtras(track!.id);
   }
 
   @override
