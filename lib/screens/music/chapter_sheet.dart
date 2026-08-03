@@ -70,7 +70,7 @@ class _ChapterSheetState extends State<ChapterSheet> {
     return Column(
       mainAxisSize: .min,
       children: [
-        const BottomSheetHeader(title: t.videoControls.chapters),
+        BottomSheetHeader(title: t.videoControls.chapters),
         ConstrainedBox(
           constraints: const BoxConstraints(maxHeight: 460),
           child: FutureBuilder<PlaybackExtras?>(
