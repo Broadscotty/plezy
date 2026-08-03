@@ -539,9 +539,11 @@ class _LibrariesScreenState extends State<LibrariesScreen>
   Future<void> _probeServersThenRefresh() async {
     final multiServer = context.read<MultiServerProvider>();
     await multiServer.checkServerHealth();
-    // Reconnect still-offline servers — stale endpoints escalate to the
-    // binder for a plex.tv re-discovery (see MultiServerManager).
-    await multiServer.serverManager.reconnectOfflineServers();
+    // Reconnect still-offline servers — forceRediscovery clears the cached
+    // endpoint so the race runs against fresh candidates; stale endpoints
+    // escalate to the binder for a plex.tv re-discovery (see
+    // MultiServerManager).
+    await multiServer.serverManager.reconnectOfflineServers(forceRediscovery: true);
     for (var i = 0; i < _visibleTabs.length; i++) {
       final Object? tabState = _getTabState(i);
       if (tabState is Refreshable) {

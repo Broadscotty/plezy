@@ -69,7 +69,14 @@ class MultiServerManager {
     _reconnectProbeTimer = Timer.periodic(_reconnectProbeInterval, (_) {
       if (offlineServerIds.isEmpty) return;
       unawaited(checkServerHealth().then((_) {
-        if (offlineServerIds.isNotEmpty) return reconnectOfflineServers();
+        if (offlineServerIds.isNotEmpty) {
+          // forceRediscovery clears the cached endpoint so the candidate
+          // race runs against the full connection list — during an outage
+          // the cached URL is dead anyway, and a server that changed address
+          // self-heals on the next probe without waiting for the binder
+          // escalation (5 min cooldown).
+          return reconnectOfflineServers(forceRediscovery: true);
+        }
       }));
     });
   }

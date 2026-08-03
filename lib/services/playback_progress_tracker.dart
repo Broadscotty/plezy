@@ -264,6 +264,12 @@ class PlaybackProgressTracker {
                   error: e,
                 );
                 unawaited(_queueOnlineFailureProgress(position, duration));
+                // The report surface rejected the update (e.g. debrid has no
+                // progress API). Still surface the position locally so the
+                // watch-state patch layer drives the resume icon and progress
+                // bar — otherwise the UI shows the stale (plain play) state
+                // even though the offset was queued for resume.
+                _notifyProgressIfNeeded(position, duration);
               }),
         );
       }
@@ -276,10 +282,13 @@ class PlaybackProgressTracker {
           'skipping next $_ticksToSkip tick(s)',
           error: e,
         );
-        await _queueOnlineFailureProgress(
-          attemptedPosition ?? player.state.position,
-          attemptedDuration ?? player.state.duration,
-        );
+        final failedPosition = attemptedPosition ?? player.state.position;
+        final failedDuration = attemptedDuration ?? player.state.duration;
+        await _queueOnlineFailureProgress(failedPosition, failedDuration);
+        // Same local-surface rationale as the fire-and-forget catch above:
+        // a rejected report must still update the watch-state patch layer so
+        // resume icons/progress bars reflect the position.
+        _notifyProgressIfNeeded(failedPosition, failedDuration, force: state == 'stopped');
       } else {
         appLogger.d('Failed to send progress update (non-critical)', error: e);
       }

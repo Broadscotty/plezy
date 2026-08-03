@@ -15,6 +15,7 @@ import '../../mixins/grid_focus_node_mixin.dart';
 import '../../models/download_models.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/multi_server_provider.dart';
+import '../../services/download_artwork_service.dart';
 import '../../services/download_storage_service.dart';
 import '../../services/music/music_playback_service.dart';
 import '../../theme/mono_tokens.dart';
@@ -290,10 +291,13 @@ class _AlbumDetailScreenState extends BaseMediaListDetailScreen<AlbumDetailScree
   /// generic fallback icon. Mirrors the media-card poster fallback.
   String? _offlineArtworkPath(MediaItem album) {
     if (album.serverId == null || album.thumbPath == null) return null;
-    final downloadProvider = context.read<DownloadProvider?>();
-    if (downloadProvider == null) return null;
-    final artwork = downloadProvider.getArtworkPaths(album.globalKey);
-    return artwork?.getLocalPath(DownloadStorageService.instance, ServerId(album.serverId!));
+    // Direct path resolution from the thumb (same hash the downloader used) —
+    // avoids a fragile globalKey registry match.
+    return DownloadArtworkService.localPathSync(
+      DownloadStorageService.instance,
+      ServerId(album.serverId!),
+      album.thumbPath,
+    );
   }
 
   Widget _buildHeader() {

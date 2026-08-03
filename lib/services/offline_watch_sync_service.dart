@@ -408,6 +408,23 @@ class OfflineWatchSyncService extends ChangeNotifier {
 
         final synced = await _withOnlineClientForAction(action, (client) async {
           try {
+            // Debrid has no server-side watch state to write to: its report
+            // surface throws by design and local progress is the single
+            // source of truth (it lives in the watch-state store, not on a
+            // remote). Replaying the queued action against the debrid
+            // "server" would spin the retry loop below — the client's
+            // report methods throw UnsupportedError, syncAttempts climbs to
+            // maxSyncAttempts, and the action is dropped after 5 attempts
+            // (~every 60s, forever). Resolve the action locally instead and
+            // remove it once; the local watch-state patch already applied
+            // when the action was queued.
+            if (client.backend == MediaBackend.debrid) {
+              appLogger.d(
+                'Debrid action ${action.id} is local-only (no server to sync); clearing',
+              );
+              await _database.deleteWatchAction(action.id);
+              return;
+            }
             await _syncAction(client, action);
             await _database.deleteWatchAction(action.id);
             appLogger.d('Successfully synced action ${action.id}: ${action.actionType} for ${action.ratingKey}');

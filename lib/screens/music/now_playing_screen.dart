@@ -23,9 +23,9 @@ import '../../media/stepped_seek.dart';
 import '../../media/media_server_client.dart';
 import '../../mixins/context_menu_tap_mixin.dart';
 import '../../services/device_performance.dart';
+import '../../services/download_artwork_service.dart';
 import '../../services/download_storage_service.dart';
 import '../../services/music/music_playback_service.dart';
-import '../../providers/download_provider.dart';
 import '../../theme/mono_motion.dart';
 import '../../theme/mono_tokens.dart';
 import '../../utils/app_logger.dart';
@@ -864,7 +864,7 @@ class _Artwork extends StatelessWidget {
   Widget build(BuildContext context) {
     final tk = tokens(context);
     final isPlaying = context.select<MusicPlaybackService, bool>((s) => s.isPlaying);
-    final localFilePath = client == null ? _offlineArtworkPath(context, track) : null;
+    final localFilePath = client == null ? _offlineArtworkPath(track) : null;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -912,7 +912,7 @@ class _Background extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tk = tokens(context);
-    final localFilePath = client == null ? _offlineArtworkPath(context, track) : null;
+    final localFilePath = client == null ? _offlineArtworkPath(track) : null;
     if (DevicePerformance.isReduced || track.thumbPath == null) {
       return ColoredBox(color: tk.bg);
     }
@@ -1318,10 +1318,17 @@ class _NowPlayingSeekBarState extends State<_NowPlayingSeekBar> {
 /// generic fallback icon. Mirrors the poster fallback used by media cards.
 /// Missing local files are safe — [OptimizedMediaImage] degrades to the
 /// network image / fallback icon.
-String? _offlineArtworkPath(BuildContext context, MediaItem track) {
+String? _offlineArtworkPath(MediaItem track) {
   if (track.serverId == null || track.thumbPath == null) return null;
-  final downloadProvider = context.read<DownloadProvider?>();
-  if (downloadProvider == null) return null;
-  final artwork = downloadProvider.getArtworkPaths(track.globalKey);
-  return artwork?.getLocalPath(DownloadStorageService.instance, ServerId(track.serverId!));
+  // Resolve the downloaded artwork file directly from the thumb path — the
+  // downloader hashed `serverId:thumbPath` into a stable file name, so no
+  // registry/globalKey round-trip is needed (and the key match is fragile:
+  // the playing track may be a fresh browse item, not the exact download
+  // row). Missing files are safe — OptimizedMediaImage degrades to the
+  // network image / fallback icon.
+  return DownloadArtworkService.localPathSync(
+    DownloadStorageService.instance,
+    ServerId(track.serverId!),
+    track.thumbPath,
+  );
 }
