@@ -88,6 +88,9 @@ class StremioDebridClient extends MediaServerClient {
 
   bool _offlineMode = false;
 
+  /// Whether we're using the stream addon's own catalogs (vs Cinemeta fallback).
+  bool _usingStreamAddonCatalogs = false;
+
   /// Stremio's own official metadata/catalog addon. Used for browsing and
   /// item detail regardless of which stream addon the user configured --
   /// Torrentio-style addons only provide streams, not catalogs, same as in
@@ -145,6 +148,33 @@ class StremioDebridClient extends MediaServerClient {
   Future<List<({String type, String id, String name})>> _loadCatalogs() async {
     final cached = _catalogs;
     if (cached != null) return cached;
+
+    // Try the stream addon first (Formulio, etc. often provide their own catalogs).
+    try {
+      final manifest = await _streamAddon.fetchManifest();
+      final rawCatalogs = manifest['catalogs'] as List? ?? const [];
+      final streamCatalogs = rawCatalogs
+          .whereType<Map<String, dynamic>>()
+          .map((c) => (
+            type: c['type'] as String? ?? 'movie',
+            id: c['id'] as String? ?? '',
+            name: c['name'] as String? ?? (c['id'] as String? ?? 'Catalog'),
+          ))
+          .where((c) => c.id.isNotEmpty)
+          .toList();
+
+      if (streamCatalogs.isNotEmpty) {
+        // Stream addon provides usable catalogs - use those.
+        _catalogs = streamCatalogs;
+        _usingStreamAddonCatalogs = true;
+        appLogger.i('Using stream addon catalogs: ${streamCatalogs.map((c) => c.name).join(", ")}');
+        return _catalogs!;
+      }
+    } catch (e) {
+      appLogger.d('Stremio: stream addon manifest check skipped or failed: $e');
+    }
+
+    // Fallback: Cinemeta's "top" catalogs (generic movie/series browsing).
     final manifest = await _catalogAddon.fetchManifest();
     final rawCatalogs = manifest['catalogs'] as List? ?? const [];
     final catalogs = rawCatalogs
@@ -165,6 +195,8 @@ class StremioDebridClient extends MediaServerClient {
         .where((c) => c.id == 'top')
         .toList();
     _catalogs = catalogs;
+    _usingStreamAddonCatalogs = false;
+    appLogger.i('Stremio: loaded ${catalogs.length} catalogs from Cinemeta');
     return catalogs;
   }
 
@@ -194,10 +226,11 @@ class StremioDebridClient extends MediaServerClient {
         MediaLibrary(
           id: '${catalog.type}|${catalog.id}',
           backend: MediaBackend.debrid,
-          title: catalog.type == 'series' ? 'TV Shows' : 'Movies',
+          // Use the catalog's actual name (e.g., "Formulio") instead of generic "Movies"/"TV Shows"
+          title: catalog.name,
           kind: catalog.type == 'series' ? MediaKind.show : MediaKind.movie,
           serverId: serverId.toString(),
-          serverName: 'Stremio',
+          serverName: _usingStreamAddonCatalogs ? _streamAddon.addonUrl : 'Stremio',
         ),
     ];
   }
@@ -219,7 +252,9 @@ class StremioDebridClient extends MediaServerClient {
     }
     final skip = query.offset;
     try {
-      final previews = await _catalogAddon.fetchCatalog(parts[0], parts[1], extra: {'skip': skip.toString()});
+      // Use the appropriate catalog addon based on which catalogs we're using
+      final catalogAddon = _usingStreamAddonCatalogs ? _streamAddon : _catalogAddon;
+      final previews = await catalogAddon.fetchCatalog(parts[0], parts[1], extra: {'skip': skip.toString()});
       final items = previews.map(_mapPreviewToItem).toList();
       return LibraryPage(items: items, totalCount: fallbackPageTotal(offset: skip, itemCount: items.length), offset: skip);
     } on StremioAddonException {
