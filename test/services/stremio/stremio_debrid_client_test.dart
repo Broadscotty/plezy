@@ -205,23 +205,44 @@ void main() {
   setUpAll(() => LocaleSettings.setLocaleSync(AppLocale.en));
 
   group('_loadCatalogs / fetchLibraries', () {
-    test('stream addon with catalogs shows only those (no Cinemeta)', () async {
+    test('merges stream addon catalogs with Cinemeta top catalogs', () async {
       final client = _buildClient();
       final libs = await client.fetchLibraries();
-      expect(libs, hasLength(1)); // Formulio only
-      expect(libs[0].id, 'series|formulio-series');
+      expect(libs, hasLength(3)); // Formulio + Cinemeta movie top + series top
     });
 
-    test('stream addon catalog title uses manifest name', () async {
+    test('stream addon catalogs come first', () async {
+      final client = _buildClient();
+      final libs = await client.fetchLibraries();
+      expect(libs[0].id, 'series|formulio-series');
+      expect(libs[1].id, 'movie|top');
+      expect(libs[2].id, 'series|top');
+    });
+
+    test('stream addon library title uses manifest name', () async {
       final client = _buildClient();
       final libs = await client.fetchLibraries();
       expect(libs[0].title, 'Formulio');
+    });
+
+    test('Cinemeta fallback libraries use generic titles not "Popular"', () async {
+      final client = _buildClient();
+      final libs = await client.fetchLibraries();
+      expect(libs[1].title, 'Movies');
+      expect(libs[2].title, 'TV Shows');
     });
 
     test('stream addon library serverName is the manifest name', () async {
       final client = _buildClient();
       final libs = await client.fetchLibraries();
       expect(libs[0].serverName, 'Formulio');
+    });
+
+    test('Cinemeta library serverName is "Stremio"', () async {
+      final client = _buildClient();
+      final libs = await client.fetchLibraries();
+      expect(libs[1].serverName, 'Stremio');
+      expect(libs[2].serverName, 'Stremio');
     });
 
     test('all libraries have debrid backend', () async {
@@ -238,18 +259,12 @@ void main() {
       expect(libs[0].kind, MediaKind.show);
     });
 
-    test('falls back to Cinemeta-only when stream addon has no catalogs', () async {
+    test('falls back to Cinemeta-only when stream addon manifest fails', () async {
       final client = _buildClient(streamManifest: const {});
       final libs = await client.fetchLibraries();
       expect(libs, hasLength(2));
       expect(libs[0].id, 'movie|top');
       expect(libs[1].id, 'series|top');
-    });
-
-    test('falls back to Cinemeta when stream addon manifest fails', () async {
-      final client = _buildClient(streamManifest: const {});
-      final libs = await client.fetchLibraries();
-      expect(libs, hasLength(2));
     });
   });
 
