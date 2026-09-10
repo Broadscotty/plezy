@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:http/http.dart' as http;
+
 import '../../exceptions/media_server_exceptions.dart';
 import '../../i18n/strings.g.dart';
 import '../../media/download_resolution.dart';
@@ -70,6 +73,12 @@ class NoLiveTvSupport implements LiveTvSupport {
 
 Never _unsupported(String what) => throw UnsupportedError('$what is not supported for the debrid backend');
 
+/// Catalog descriptor as advertised by an addon manifest, plus which addon
+/// serves it. Meta/search/catalog fetches must go to the owning addon:
+/// Cinemeta only resolves `tt...` IMDb ids, stream addons like Formulio
+/// only resolve their own id space (e.g. `hpy...`).
+typedef _StremioCatalog = ({String type, String id, String name, bool fromStreamAddon});
+
 /// [MediaServerClient] backed by a single Stremio addon, resolving streams
 /// through Real-Debrid rather than a live media server.
 class StremioDebridClient extends MediaServerClient {
@@ -82,14 +91,31 @@ class StremioDebridClient extends MediaServerClient {
   final StremioAddonClient _catalogAddon;
   final RealDebridClient _realDebrid;
 
-  /// Stremio catalog descriptors this addon exposes, read from its manifest
-  /// (`type`, `id`, `name`). Populated lazily on first [fetchLibraries] call.
-  List<({String type, String id, String name})>? _catalogs;
-
+  /// Catalog descriptor as advertised by an addon manifest, plus which addon
+  /// serves it. Meta/search/catalog fetches must go to the owning addon:
+  /// Cinemeta only resolves `tt...` IMDb ids, stream addons like Formulio
+  /// only resolve their own id space (e.g. `hpy...`).
   bool _offlineMode = false;
 
-  /// Whether we're using the stream addon's own catalogs (vs Cinemeta fallback).
-  bool _usingStreamAddonCatalogs = false;
+  /// Merged catalog list: stream addon catalogs first, then Cinemeta's
+  /// browsable `top` catalogs. Populated lazily on first catalog use.
+  List<_StremioCatalog>? _catalogs;
+
+  /// The stream addon's manifest, parsed once for its display name, catalogs,
+  /// and meta capabilities. Null = not loaded yet; an empty map marks a
+  /// load that already failed (don't retry every call).
+  Map<String, dynamic>? _streamManifest;
+
+  /// Display name from the stream addon manifest (e.g. "Formulio"), used as
+  /// the library server label. Never the raw addon URL -- Torrentio-style
+  /// URLs embed the Real-Debrid API token in the path.
+  String? _streamAddonName;
+
+  /// Id prefixes and types the stream addon's `meta` resource serves, from
+  /// its manifest `resources` (e.g. Formulio: prefixes {hpy}, types {series}).
+  /// Empty prefixes/types mean "no restriction" per the addon protocol.
+  Set<String> _streamMetaIdPrefixes = const {};
+  Set<String> _streamMetaTypes = const {};
 
   /// Stremio's own official metadata/catalog addon. Used for browsing and
   /// item detail regardless of which stream addon the user configured --
@@ -102,8 +128,9 @@ class StremioDebridClient extends MediaServerClient {
     required String addonUrl,
     required String realDebridApiToken,
     this.serverName,
-  }) : _streamAddon = StremioAddonClient(addonUrl: addonUrl),
-       _catalogAddon = StremioAddonClient(addonUrl: _cinemetaUrl),
+    @visibleForTesting http.Client? httpClient,
+  }) : _streamAddon = StremioAddonClient(addonUrl: addonUrl, httpClient: httpClient),
+       _catalogAddon = StremioAddonClient(addonUrl: _cinemetaUrl, httpClient: httpClient),
        _realDebrid = RealDebridClient(apiToken: realDebridApiToken);
 
   @override
@@ -145,58 +172,128 @@ class StremioDebridClient extends MediaServerClient {
   @override
   Future<String?> getMachineIdentifier() async => serverId.toString();
 
-  Future<List<({String type, String id, String name})>> _loadCatalogs() async {
+  /// Fetch and cache the stream addon's manifest, extracting its display
+  /// name and `meta` resource capabilities (id prefixes / types). Safe to
+  /// call repeatedly; a failed load is remembered as an empty manifest so
+  /// every subsequent call doesn't re-hit the network.
+  Future<void> _ensureStreamAddonInfo() async {
+    final cached = _streamManifest;
+    if (cached != null) return;
+    Map<String, dynamic> manifest;
+    try {
+      manifest = await _streamAddon.fetchManifest();
+    } on StremioAddonException catch (e) {
+      appLogger.d('Stremio: stream addon manifest unavailable: $e');
+      manifest = const {};
+    }
+    _streamManifest = manifest;
+    _streamAddonName = manifest['name'] as String?;
+    final prefixes = <String>{};
+    final types = <String>{};
+    for (final resource in manifest['resources'] as List? ?? const []) {
+      if (resource is! Map<String, dynamic>) continue;
+      if (resource['name'] != 'meta') continue;
+      prefixes.addAll((resource['idPrefixes'] as List?)?.whereType<String>() ?? const <String>[]);
+      types.addAll((resource['types'] as List?)?.whereType<String>() ?? const <String>[]);
+    }
+    _streamMetaIdPrefixes = prefixes;
+    _streamMetaTypes = types;
+  }
+
+  /// Whether the stream addon's `meta` resource covers [id] for [type]. An
+  /// addon without a parsed manifest (unreachable) serves nothing here --
+  /// callers fall through to Cinemeta.
+  bool _streamAddonServesMeta(String type, String id) {
+    if (_streamManifest == null || _streamManifest!.isEmpty) return false;
+    if (_streamMetaTypes.isNotEmpty && !_streamMetaTypes.contains(type)) return false;
+    if (_streamMetaIdPrefixes.isEmpty) return true;
+    return _streamMetaIdPrefixes.any(id.startsWith);
+  }
+
+  /// Whether Cinemeta can plausibly serve [id] for [type] -- IMDb-prefixed
+  /// movie/series ids only, per its manifest (`idPrefixes: ["tt"]`).
+  bool _catalogAddonServesMeta(String type, String id) => id.startsWith('tt') && (type == 'movie' || type == 'series');
+
+  /// Fetch show-level meta from the addon that owns [stremioId], falling
+  /// back to the other addon when the preferred one can't resolve it.
+  /// Routing by declared id prefixes is what makes non-IMDb addons (e.g.
+  /// Formulio's `hpy...` ids) work at all -- Cinemeta 404s on those.
+  Future<StremioMetaPreview?> _fetchShowMeta(String type, String stremioId) async {
+    final showId = _splitShowVideoId(stremioId).showId;
+    await _ensureStreamAddonInfo();
+    final streamFirst = _streamAddonServesMeta(type, showId);
+    final primary = streamFirst ? _streamAddon : _catalogAddon;
+    final secondaryServes = streamFirst ? _catalogAddonServesMeta(type, showId) : _streamAddonServesMeta(type, showId);
+    final secondary = streamFirst ? _catalogAddon : _streamAddon;
+    try {
+      final meta = await primary.fetchMeta(type, showId);
+      if (meta != null || !secondaryServes) return meta;
+    } on StremioAddonException catch (e) {
+      if (!secondaryServes) rethrow;
+      appLogger.d('Stremio: meta fetch failed on preferred addon, trying fallback: $e');
+    }
+    return secondary.fetchMeta(type, showId);
+  }
+
+  /// Load the merged catalog list: the stream addon's own catalogs first
+  /// (the content the user actually configured), then Cinemeta's generically
+  /// browsable `top` catalogs. Deduped by `type|id`, stream addon winning.
+  ///
+  /// Only Cinemeta's "top" is kept from the fallback side: its other catalogs
+  /// either require parameters only Stremio's own app supplies internally
+  /// (New/year needs a required genre; Last videos/Calendar videos need
+  /// specific show-id lists for episode-release tracking, not general
+  /// browsing) or would multiply into several near-duplicate library entries
+  /// per type. Stream addon catalogs are taken as declared -- their addon
+  /// owns them and knows what's browsable.
+  Future<List<_StremioCatalog>> _loadCatalogs() async {
     final cached = _catalogs;
     if (cached != null) return cached;
 
-    // Try the stream addon first (Formulio, etc. often provide their own catalogs).
-    try {
-      final manifest = await _streamAddon.fetchManifest();
-      final rawCatalogs = manifest['catalogs'] as List? ?? const [];
-      final streamCatalogs = rawCatalogs
-          .whereType<Map<String, dynamic>>()
-          .map((c) => (
-            type: c['type'] as String? ?? 'movie',
-            id: c['id'] as String? ?? '',
-            name: c['name'] as String? ?? (c['id'] as String? ?? 'Catalog'),
-          ))
-          .where((c) => c.id.isNotEmpty)
-          .toList();
+    await _ensureStreamAddonInfo();
+    final catalogs = <_StremioCatalog>[];
 
-      if (streamCatalogs.isNotEmpty) {
-        // Stream addon provides usable catalogs - use those.
-        _catalogs = streamCatalogs;
-        _usingStreamAddonCatalogs = true;
-        appLogger.i('Using stream addon catalogs: ${streamCatalogs.map((c) => c.name).join(", ")}');
-        return _catalogs!;
-      }
-    } catch (e) {
-      appLogger.d('Stremio: stream addon manifest check skipped or failed: $e');
+    // 1. Stream addon catalogs.
+    final rawStream = _streamManifest?['catalogs'] as List? ?? const [];
+    for (final c in rawStream.whereType<Map<String, dynamic>>()) {
+      final id = c['id'] as String? ?? '';
+      if (id.isEmpty) continue;
+      catalogs.add((
+        type: c['type'] as String? ?? 'movie',
+        id: id,
+        name: c['name'] as String? ?? (id.isNotEmpty ? id : 'Catalog'),
+        fromStreamAddon: true,
+      ));
+    }
+    if (catalogs.isNotEmpty) {
+      appLogger.i('Stremio: using stream addon catalogs: ${catalogs.map((c) => c.name).join(", ")}');
     }
 
-    // Fallback: Cinemeta's "top" catalogs (generic movie/series browsing).
-    final manifest = await _catalogAddon.fetchManifest();
-    final rawCatalogs = manifest['catalogs'] as List? ?? const [];
-    final catalogs = rawCatalogs
-        .whereType<Map<String, dynamic>>()
-        .map(
-          (c) => (
-            type: c['type'] as String? ?? 'movie',
-            id: c['id'] as String? ?? '',
-            name: c['name'] as String? ?? (c['id'] as String? ?? 'Catalog'),
-          ),
-        )
-        // Only "top" is generically browsable with just skip/pagination.
-        // Cinemeta's other catalogs either require parameters only Stremio's
-        // own app supplies internally (New/year needs a required genre;
-        // Last videos/Calendar videos need specific show-id lists for
-        // episode-release tracking, not general browsing) or would multiply
-        // into several near-duplicate library entries per type.
-        .where((c) => c.id == 'top')
-        .toList();
+    // 2. Cinemeta's top catalogs (generic movie/series browsing), skipping
+    //    any (type, id) the stream addon already provides.
+    try {
+      final manifest = await _catalogAddon.fetchManifest();
+      final rawCatalogs = manifest['catalogs'] as List? ?? const [];
+      for (final c in rawCatalogs.whereType<Map<String, dynamic>>()) {
+        final id = c['id'] as String? ?? '';
+        final type = c['type'] as String? ?? 'movie';
+        if (id != 'top') continue;
+        if (catalogs.any((existing) => existing.type == type && existing.id == id)) continue;
+        catalogs.add((
+          type: type,
+          id: id,
+          name: c['name'] as String? ?? (id.isNotEmpty ? id : 'Catalog'),
+          fromStreamAddon: false,
+        ));
+      }
+    } on StremioAddonException catch (e) {
+      // Cinemeta being unreachable doesn't have to kill the debrid server
+      // entirely when the stream addon's catalogs loaded fine.
+      if (catalogs.isEmpty) rethrow;
+      appLogger.w('Stremio: Cinemeta catalogs unavailable, using stream addon catalogs only', error: e);
+    }
+
     _catalogs = catalogs;
-    _usingStreamAddonCatalogs = false;
-    appLogger.i('Stremio: loaded ${catalogs.length} catalogs from Cinemeta');
     return catalogs;
   }
 
@@ -218,6 +315,20 @@ class StremioDebridClient extends MediaServerClient {
     );
   }
 
+  /// Label for the server chip on a library: the stream addon's manifest
+  /// name for its own catalogs ("Formulio"), "Stremio" for the fixed
+  /// Cinemeta catalogs. Host-only fallback -- never the full addon URL,
+  /// which can embed the Real-Debrid API token.
+  String get _streamAddonLabel {
+    final name = _streamAddonName;
+    if (name != null && name.isNotEmpty) return name;
+    try {
+      final host = Uri.parse(_streamAddon.addonUrl).host;
+      if (host.isNotEmpty) return host;
+    } catch (_) {}
+    return 'Stremio';
+  }
+
   @override
   Future<List<MediaLibrary>> fetchLibraries() async {
     final catalogs = await _loadCatalogs();
@@ -226,11 +337,13 @@ class StremioDebridClient extends MediaServerClient {
         MediaLibrary(
           id: '${catalog.type}|${catalog.id}',
           backend: MediaBackend.debrid,
-          // Use the catalog's actual name (e.g., "Formulio") instead of generic "Movies"/"TV Shows"
-          title: catalog.name,
+          // Stream addon catalogs use their own declared name (e.g.
+          // "Formulio"); Cinemeta's two `top` catalogs are both literally
+          // named "Popular", so keep the clearer generic titles there.
+          title: catalog.fromStreamAddon ? catalog.name : (catalog.type == 'series' ? 'TV Shows' : 'Movies'),
           kind: catalog.type == 'series' ? MediaKind.show : MediaKind.movie,
           serverId: serverId.toString(),
-          serverName: _usingStreamAddonCatalogs ? _streamAddon.addonUrl : 'Stremio',
+          serverName: catalog.fromStreamAddon ? _streamAddonLabel : 'Stremio',
         ),
     ];
   }
@@ -238,6 +351,19 @@ class StremioDebridClient extends MediaServerClient {
   @override
   Future<LibraryPage<MediaItem>> fetchLibraryContent(String libraryId, LibraryQuery query) =>
       fetchLibraryPagedContent(libraryId, query: query);
+
+  /// The addon serving [type]/[catalogId] -- the stream addon when the
+  /// catalog came from its manifest, Cinemeta otherwise. Unknown/stale
+  /// library ids default to Cinemeta, the historical behavior.
+  Future<StremioAddonClient> _catalogAddonFor(String type, String catalogId) async {
+    final catalogs = await _loadCatalogs();
+    for (final catalog in catalogs) {
+      if (catalog.type == type && catalog.id == catalogId) {
+        return catalog.fromStreamAddon ? _streamAddon : _catalogAddon;
+      }
+    }
+    return _catalogAddon;
+  }
 
   @override
   Future<LibraryPage<MediaItem>> fetchLibraryPagedContent(
@@ -252,9 +378,8 @@ class StremioDebridClient extends MediaServerClient {
     }
     final skip = query.offset;
     try {
-      // Use the appropriate catalog addon based on which catalogs we're using
-      final catalogAddon = _usingStreamAddonCatalogs ? _streamAddon : _catalogAddon;
-      final previews = await catalogAddon.fetchCatalog(parts[0], parts[1], extra: {'skip': skip.toString()});
+      final addon = await _catalogAddonFor(parts[0], parts[1]);
+      final previews = await addon.fetchCatalog(parts[0], parts[1], extra: {'skip': skip.toString()});
       final items = previews.map(_mapPreviewToItem).toList();
       return LibraryPage(items: items, totalCount: fallbackPageTotal(offset: skip, itemCount: items.length), offset: skip);
     } on StremioAddonException {
@@ -319,13 +444,6 @@ class StremioDebridClient extends MediaServerClient {
       serverName: serverName,
       raw: {'stremioType': stremioType, 'stremioId': video.id, 'addonUrl': _streamAddon.addonUrl},
     );
-  }
-
-  /// Fetch a show's full meta, tolerant of season/episode-suffixed ids: strips
-  /// the suffix so Cinemeta's /meta endpoint (show-level only) resolves.
-  Future<StremioMetaPreview?> _fetchShowMeta(String type, String stremioId) async {
-    final showId = _splitShowVideoId(stremioId).showId;
-    return _catalogAddon.fetchMeta(type, showId);
   }
 
   /// Resolve [id] (`show`, `season`, or `episode` scoped) to a [MediaItem]
@@ -588,10 +706,25 @@ class StremioDebridClient extends MediaServerClient {
   Future<List<MediaItem>> searchItems(String query, {int limit = 100, AbortController? abort}) async {
     final catalogs = await _loadCatalogs();
     final results = <MediaItem>[];
+    final seen = <String>{};
     for (final catalog in catalogs) {
       if (results.length >= limit) break;
-      final previews = await _catalogAddon.fetchCatalog(catalog.type, catalog.id, extra: {'search': query});
-      results.addAll(previews.map(_mapPreviewToItem));
+      // Each catalog is searched on its owning addon -- stream addon
+      // catalogs only exist there, and asking Cinemeta for them is a 404.
+      final addon = catalog.fromStreamAddon ? _streamAddon : _catalogAddon;
+      try {
+        final previews = await addon.fetchCatalog(catalog.type, catalog.id, extra: {'search': query});
+        for (final preview in previews) {
+          final itemId = StremioItemId(preview.type, preview.id).toString();
+          if (!seen.add(itemId)) continue;
+          results.add(_mapPreviewToItem(preview));
+        }
+      } on StremioAddonException catch (e) {
+        // One unsearchable catalog (addon down, no search support) must not
+        // fail the whole search -- other catalogs can still match, and the
+        // search screen treats a thrown error as a full-page failure.
+        appLogger.d('Stremio: catalog search failed for ${catalog.type}/${catalog.id}: $e');
+      }
     }
     return results.take(limit).toList();
   }
@@ -600,7 +733,9 @@ class StremioDebridClient extends MediaServerClient {
   Future<List<MediaItem>> fetchRecentlyAdded({int limit = 50}) async {
     final catalogs = await _loadCatalogs();
     if (catalogs.isEmpty) return const [];
-    final previews = await _catalogAddon.fetchCatalog(catalogs.first.type, catalogs.first.id);
+    final catalog = catalogs.first;
+    final addon = catalog.fromStreamAddon ? _streamAddon : _catalogAddon;
+    final previews = await addon.fetchCatalog(catalog.type, catalog.id);
     return previews.take(limit).map(_mapPreviewToItem).toList();
   }
 
