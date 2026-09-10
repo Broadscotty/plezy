@@ -302,8 +302,6 @@ Future<void> _analyzeLibrary(BuildContext context, MediaLibrary library) {
 Future<void> _deleteLibrary(BuildContext context, MediaLibrary library) async {
   final hiddenProvider = context.read<HiddenLibrariesProvider>();
   await hiddenProvider.deleteLibrary(library.globalKey);
-  if (!context.mounted) return;
-  showSuccessSnackBar(context, message: t.libraries.hideLibrary); // re-use a generic snackbar; the confirmation dialog is the primary feedback
 }
 
 class _LibraryManagementSheet extends StatefulWidget {
