@@ -120,6 +120,7 @@ class StremioDebridClient extends MediaServerClient {
   /// Id prefixes and types the stream addon's `meta` resource serves, from
   /// its manifest `resources` (e.g. Formulio: prefixes {hpy}, types {series}).
   /// Empty prefixes/types mean "no restriction" per the addon protocol.
+  bool _hasStreamMetaResource = false;
   Set<String> _streamMetaIdPrefixes = const {};
   Set<String> _streamMetaTypes = const {};
 
@@ -196,21 +197,26 @@ class StremioDebridClient extends MediaServerClient {
     _streamAddonName = manifest['name'] as String?;
     final prefixes = <String>{};
     final types = <String>{};
+    var hasMeta = false;
     for (final resource in manifest['resources'] as List? ?? const []) {
       if (resource is! Map<String, dynamic>) continue;
       if (resource['name'] != 'meta') continue;
+      hasMeta = true;
       prefixes.addAll((resource['idPrefixes'] as List?)?.whereType<String>() ?? const <String>[]);
       types.addAll((resource['types'] as List?)?.whereType<String>() ?? const <String>[]);
     }
+    _hasStreamMetaResource = hasMeta;
     _streamMetaIdPrefixes = prefixes;
     _streamMetaTypes = types;
   }
 
   /// Whether the stream addon's `meta` resource covers [id] for [type]. An
-  /// addon without a parsed manifest (unreachable) serves nothing here --
-  /// callers fall through to Cinemeta.
+  /// addon without a parsed manifest (unreachable) or without a declared
+  /// `meta` resource (Torrentio, etc.) serves nothing here -- callers
+  /// fall through to Cinemeta.
   bool _streamAddonServesMeta(String type, String id) {
     if (_streamManifest == null || _streamManifest!.isEmpty) return false;
+    if (!_hasStreamMetaResource) return false;
     if (_streamMetaTypes.isNotEmpty && !_streamMetaTypes.contains(type)) return false;
     if (_streamMetaIdPrefixes.isEmpty) return true;
     return _streamMetaIdPrefixes.any(id.startsWith);
