@@ -1,19 +1,19 @@
-name: Cleo Branch Build
+name: Stremio Build
 
-# Branch workflow for Cleo's bug-fix branches. Builds a sideload APK from any
-# `cleo/**` branch (or manual dispatch) and publishes it to the `cleo-latest`
-# GitHub Release so the phone has a stable direct-download URL:
-#   https://github.com/Broadscotty/plezy/releases/download/cleo-latest/plezy-arm64-v8a.apk
+# Builds a sideload APK from `main` (or manual dispatch) and publishes it to
+# the `stremio-latest` GitHub Release so the phone has a stable direct-download
+# URL:
+#   https://github.com/Broadscotty/plezy/releases/download/stremio-latest/plezy-arm64-v8a.apk
 #
-# Mirrors the main-branch `sideload-latest` pattern (same checked-in
-# sideload-debug.keystore, same applicationId com.edde746.plezy.sideload) so
-# installs update over each other without uninstalling first.
+# Same checked-in sideload-debug.keystore, same applicationId
+# com.edde746.plezy.sideload so installs update over each other without
+# uninstalling first.
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - 'cleo/**'
+      - main
 
 env:
   GIT_COMMIT_DART_DEFINE: --dart-define=GIT_COMMIT=${{ github.sha }}
@@ -62,20 +62,20 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: cleo-android-apk
+          name: stremio-android-apk
           path: release-assets/
 
-      - name: Publish cleo-latest release
+      - name: Publish stremio-latest release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete cleo-latest --yes --cleanup-tag --repo "${{ github.repository }}" || true
-          gh release create cleo-latest release-assets/*.apk \
+          gh release delete stremio-latest --yes --cleanup-tag --repo "${{ github.repository }}" || true
+          gh release create stremio-latest release-assets/*.apk \
             --repo "${{ github.repository }}" \
-            --title "Cleo branch build (${{ github.ref_name }})" \
-            --notes "Automated sideload APK from Cleo's branch ${{ github.ref_name }} at commit ${{ github.sha }}. Debug-signed, applicationId com.edde746.plezy.sideload. Download plezy-arm64-v8a.apk directly on your phone." \
+            --title "Stremio build (${{ github.ref_name }})" \
+            --notes "Automated sideload APK from branch ${{ github.ref_name }} at commit ${{ github.sha }}. Debug-signed, applicationId com.edde746.plezy.sideload. Download plezy-arm64-v8a.apk directly on your phone." \
             --latest
 
       - name: Print direct download URL
         run: |
-          echo "Direct APK URL: https://github.com/${{ github.repository }}/releases/download/cleo-latest/plezy-arm64-v8a.apk"
+          echo "Direct APK URL: https://github.com/${{ github.repository }}/releases/download/stremio-latest/plezy-arm64-v8a.apk"
