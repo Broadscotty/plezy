@@ -203,10 +203,11 @@ class SettingsExportService {
         pref.key: _PreferencePolicy(_storageTypeFor(pref)),
   };
 
-  static const Set<String> _jsonStringListPreferenceKeys = {'hidden_libraries', 'library_order'};
+  static const Set<String> _jsonStringListPreferenceKeys = {'hidden_libraries', 'deleted_libraries', 'library_order'};
 
   static const Map<String, _PreferencePolicy> _userScopedPreferences = {
     'hidden_libraries': _PreferencePolicy(_typeString, userScoped: true),
+    'deleted_libraries': _PreferencePolicy(_typeString, userScoped: true),
     'library_filters': _PreferencePolicy(_typeString, userScoped: true),
     'library_order': _PreferencePolicy(_typeString, userScoped: true),
   };

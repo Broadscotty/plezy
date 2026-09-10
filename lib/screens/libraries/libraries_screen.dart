@@ -158,8 +158,8 @@ class _LibrariesScreenState extends State<LibrariesScreen>
     }
 
     // Compute visible libraries for initial load
-    final hiddenKeys = hiddenLibrariesProvider.hiddenLibraryKeys;
-    final visibleLibraries = allLibraries.where((lib) => !hiddenKeys.contains(lib.globalKey)).toList();
+    final excludedKeys = hiddenLibrariesProvider.excludedKeys;
+    final visibleLibraries = allLibraries.where((lib) => !excludedKeys.contains(lib.globalKey)).toList();
 
     // Load saved preferences
     final storage = await StorageService.getInstance();
@@ -782,12 +782,12 @@ class _LibrariesScreenState extends State<LibrariesScreen>
     final allLibraries = librariesProvider.libraries;
     final isLoadingLibraries = librariesProvider.isLoading;
 
-    // Watch for hidden libraries changes to trigger rebuild
+    // Watch for hidden/deleted libraries changes to trigger rebuild
     final hiddenLibrariesProvider = context.watch<HiddenLibrariesProvider>();
-    final hiddenKeys = hiddenLibrariesProvider.hiddenLibraryKeys;
+    final excludedKeys = hiddenLibrariesProvider.excludedKeys;
 
     // Compute visible libraries (filtered from all libraries)
-    final visibleLibraries = allLibraries.where((lib) => !hiddenKeys.contains(lib.globalKey)).toList();
+    final visibleLibraries = allLibraries.where((lib) => !excludedKeys.contains(lib.globalKey)).toList();
 
     // Resolve selected library defensively — may be null if server temporarily dropped during refresh
     final selectedLibrary = _selectedLibraryGlobalKey != null

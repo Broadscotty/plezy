@@ -1627,9 +1627,9 @@ class _MainScreenState extends State<MainScreen>
                 }
 
                 final allLibraries = librariesProvider.libraries;
-                final hiddenKeys = hiddenLibrariesProvider.hiddenLibraryKeys;
+                final excludedKeys = hiddenLibrariesProvider.excludedKeys;
                 final visibleLibraries = allLibraries
-                    .where((library) => !hiddenKeys.contains(library.globalKey))
+                    .where((library) => !excludedKeys.contains(library.globalKey))
                     .toList();
                 final emptyMessage = allLibraries.isEmpty
                     ? t.libraries.noLibrariesFound

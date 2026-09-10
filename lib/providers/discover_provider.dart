@@ -199,10 +199,10 @@ class DiscoverProvider extends ChangeNotifier with DisposableChangeNotifierMixin
       // it lands so the hero renders while hubs are still loading.
       final onDeckFuture = aggregation.getOnDeckFromAllServers(
         limit: _continueWatchingProbeLimit,
-        hiddenLibraryKeys: _hiddenLibraries.hiddenLibraryKeys,
+        hiddenLibraryKeys: _hiddenLibraries.excludedKeys,
       );
       final hubsFuture = aggregation.getHubsFromAllServers(
-        hiddenLibraryKeys: _hiddenLibraries.hiddenLibraryKeys,
+        hiddenLibraryKeys: _hiddenLibraries.excludedKeys,
         useGlobalHubs: useGlobalHubs,
         includePlaybackHubs: false,
       );
@@ -296,13 +296,13 @@ class DiscoverProvider extends ChangeNotifier with DisposableChangeNotifierMixin
           ? Future<OnDeckAggregationResult?>.value()
           : aggregation.getOnDeckFromAllServers(
               limit: _continueWatchingProbeLimit,
-              hiddenLibraryKeys: _hiddenLibraries.hiddenLibraryKeys,
+              hiddenLibraryKeys: _hiddenLibraries.excludedKeys,
               serverIds: onDeckIds,
             );
       final Future<HubAggregationResult?> hubsFuture = hubIds.isEmpty
           ? Future<HubAggregationResult?>.value()
           : aggregation.getHubsFromAllServers(
-              hiddenLibraryKeys: _hiddenLibraries.hiddenLibraryKeys,
+              hiddenLibraryKeys: _hiddenLibraries.excludedKeys,
               useGlobalHubs: useGlobalHubs,
               includePlaybackHubs: false,
               serverIds: hubIds,
@@ -393,7 +393,7 @@ class DiscoverProvider extends ChangeNotifier with DisposableChangeNotifierMixin
     try {
       if (!_multiServer.hasConnectedServers) return;
       final revision = _contentRevision;
-      final hiddenKeys = Set<String>.of(_hiddenLibraries.hiddenLibraryKeys);
+      final hiddenKeys = Set<String>.of(_hiddenLibraries.excludedKeys);
       final fetched = await _multiServer.aggregationService.getOnDeckFromAllServers(
         limit: _continueWatchingProbeLimit,
         hiddenLibraryKeys: hiddenKeys,

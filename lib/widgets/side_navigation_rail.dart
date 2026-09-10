@@ -614,6 +614,7 @@ class SideNavigationRailState extends State<SideNavigationRail> with MountedSetS
     final librariesProvider = context.watch<LibrariesProvider>();
     final hiddenLibrariesProvider = context.watch<HiddenLibrariesProvider>();
     final hiddenKeys = hiddenLibrariesProvider.hiddenLibraryKeys;
+    final deletedKeys = hiddenLibrariesProvider.deletedLibraryKeys;
 
     final allLibraries = librariesProvider.libraries;
     final visibleLibraries = <MediaLibrary>[];
@@ -621,6 +622,10 @@ class SideNavigationRailState extends State<SideNavigationRail> with MountedSetS
     final serverIds = <String>{};
     for (final lib in allLibraries) {
       if (lib.serverId != null) serverIds.add(lib.serverId!);
+      if (deletedKeys.contains(lib.globalKey)) {
+        // Deleted libraries are completely excluded from every surface.
+        continue;
+      }
       if (hiddenKeys.contains(lib.globalKey)) {
         hiddenLibraries.add(lib);
       } else {

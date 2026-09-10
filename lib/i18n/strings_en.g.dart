@@ -2404,6 +2404,9 @@ class Translations$libraries$en {
 	/// en: 'Are you sure you want to empty trash for "${title}"?'
 	String emptyTrashConfirm({required Object title}) => 'Are you sure you want to empty trash for "${title}"?';
 
+	/// en: 'Are you sure you want to delete "${title}"? This library will not appear again until the connection is removed and re-added.'
+	String deleteLibraryConfirm({required Object title}) => 'Are you sure you want to delete "${title}"? This library will not appear again until the connection is removed and re-added.';
+
 	/// en: 'Manage Libraries'
 	String get manageLibraries => 'Manage Libraries';
 
@@ -2424,6 +2427,9 @@ class Translations$libraries$en {
 
 	/// en: 'Hide library'
 	String get hideLibrary => 'Hide library';
+
+	/// en: 'Delete library'
+	String get deleteLibrary => 'Delete library';
 
 	/// en: 'Library options'
 	String get libraryOptions => 'Library options';
@@ -5924,6 +5930,7 @@ extension on Translations {
 			'libraries.analyzeLibraryConfirm' => ({required Object title}) => 'Are you sure you want to analyze "${title}"?',
 			'libraries.refreshMetadataConfirm' => ({required Object title}) => 'Are you sure you want to refresh metadata for "${title}"?',
 			'libraries.emptyTrashConfirm' => ({required Object title}) => 'Are you sure you want to empty trash for "${title}"?',
+			'libraries.deleteLibraryConfirm' => ({required Object title}) => 'Are you sure you want to delete "${title}"? This library will not appear again until the connection is removed and re-added.',
 			'libraries.manageLibraries' => 'Manage Libraries',
 			'libraries.sort' => 'Sort',
 			'libraries.sortBy' => 'Sort By',
@@ -5931,6 +5938,7 @@ extension on Translations {
 			'libraries.confirmActionMessage' => 'Are you sure you want to perform this action?',
 			'libraries.showLibrary' => 'Show library',
 			'libraries.hideLibrary' => 'Hide library',
+			'libraries.deleteLibrary' => 'Delete library',
 			'libraries.libraryOptions' => 'Library options',
 			'libraries.content' => 'library content',
 			'libraries.selectLibrary' => 'Select library',

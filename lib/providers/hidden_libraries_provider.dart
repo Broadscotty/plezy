@@ -9,6 +9,7 @@ class HiddenLibrariesProvider extends ChangeNotifier with DisposableChangeNotifi
   StorageService? _storageService;
   final String? profileId;
   Set<String> _hiddenLibraryKeys = {};
+  Set<String> _deletedLibraryKeys = {};
   bool _isInitialized = false;
   Future<void>? _initFuture;
 
@@ -27,6 +28,12 @@ class HiddenLibrariesProvider extends ChangeNotifier with DisposableChangeNotifi
   /// Get an unmodifiable copy of hidden library keys
   Set<String> get hiddenLibraryKeys => Set.unmodifiable(_hiddenLibraryKeys);
 
+  /// Get an unmodifiable copy of deleted library keys
+  Set<String> get deletedLibraryKeys => Set.unmodifiable(_deletedLibraryKeys);
+
+  /// Library keys that should never appear in any surface (hidden ∪ deleted).
+  Set<String> get excludedKeys => _hiddenLibraryKeys.union(_deletedLibraryKeys);
+
   /// Initialize the provider by loading hidden libraries from storage
   Future<void> _initialize() async {
     if (_isInitialized) return;
@@ -41,6 +48,9 @@ class HiddenLibrariesProvider extends ChangeNotifier with DisposableChangeNotifi
     _hiddenLibraryKeys = scopedProfileId == null
         ? storage.getHiddenLibraries()
         : storage.getHiddenLibrariesForProfile(scopedProfileId);
+    _deletedLibraryKeys = scopedProfileId == null
+        ? storage.getDeletedLibraries()
+        : storage.getDeletedLibrariesForProfile(scopedProfileId);
   }
 
   Future<void> _saveToStorage() async {
@@ -50,6 +60,16 @@ class HiddenLibrariesProvider extends ChangeNotifier with DisposableChangeNotifi
       await storage.saveHiddenLibraries(_hiddenLibraryKeys);
     } else {
       await storage.saveHiddenLibrariesForProfile(scopedProfileId, _hiddenLibraryKeys);
+    }
+  }
+
+  Future<void> _saveDeletedToStorage() async {
+    final storage = _storageService ??= await StorageService.getInstance();
+    final scopedProfileId = profileId;
+    if (scopedProfileId == null) {
+      await storage.saveDeletedLibraries(_deletedLibraryKeys);
+    } else {
+      await storage.saveDeletedLibrariesForProfile(scopedProfileId, _deletedLibraryKeys);
     }
   }
 
@@ -77,6 +97,22 @@ class HiddenLibrariesProvider extends ChangeNotifier with DisposableChangeNotifi
 
   /// Check if a specific library is hidden
   bool isLibraryHidden(String libraryKey) => _hiddenLibraryKeys.contains(libraryKey);
+
+  /// Check if a specific library is deleted (tombstoned)
+  bool isLibraryDeleted(String libraryKey) => _deletedLibraryKeys.contains(libraryKey);
+
+  /// Permanently delete a library. Unlike hiding, the library will not appear
+  /// in any surface until the connection is removed and re-added (which
+  /// generates a new serverId / globalKey). The library's per-library
+  /// preferences are scrubbed at the call site, not here.
+  Future<void> deleteLibrary(String libraryKey) async {
+    if (!_isInitialized) await _initialize();
+    if (!_deletedLibraryKeys.contains(libraryKey)) {
+      _deletedLibraryKeys = Set.from(_deletedLibraryKeys)..add(libraryKey);
+      await _saveDeletedToStorage();
+      safeNotifyListeners();
+    }
+  }
 
   /// Refresh hidden libraries from storage
   /// Useful if storage was modified outside the provider

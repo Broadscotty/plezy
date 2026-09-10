@@ -15,6 +15,7 @@ class StorageService extends BaseSharedPreferencesService {
   static const String _keyLibraryOrder = 'library_order';
   static const String _keyCurrentUserUUID = 'current_user_uuid';
   static const String _keyHiddenLibraries = 'hidden_libraries';
+  static const String _keyDeletedLibraries = 'deleted_libraries';
   static const String _keyServersList = 'servers_list';
   static const String _keyServerOrder = 'server_order';
   static const String _keyActiveProfileId = 'active_app_profile_id';
@@ -30,7 +31,7 @@ class StorageService extends BaseSharedPreferencesService {
   // Key groups for bulk clearing
   static const List<String> _credentialKeys = [_keyPlexToken, _keyClientId, _keyCurrentUserUUID];
 
-  static const List<String> _libraryPreferenceKeys = [_keyLibraryFilters, _keyLibraryOrder, _keyHiddenLibraries];
+  static const List<String> _libraryPreferenceKeys = [_keyLibraryFilters, _keyLibraryOrder, _keyHiddenLibraries, _keyDeletedLibraries];
 
   StorageService._();
 
@@ -287,6 +288,26 @@ class StorageService extends BaseSharedPreferencesService {
     return _decodeStringSet(jsonString);
   }
 
+  // Deleted Libraries (tombstone: library never appears even after refresh).
+  Future<void> saveDeletedLibraries(Set<String> libraryKeys) async {
+    await _setStringList('$_userPrefix$_keyDeletedLibraries', libraryKeys.toList());
+  }
+
+  Future<void> saveDeletedLibrariesForProfile(String profileId, Set<String> libraryKeys) async {
+    await _setStringList('${_userPrefixForProfileId(profileId)}$_keyDeletedLibraries', libraryKeys.toList());
+  }
+
+  Set<String> getDeletedLibraries() {
+    final jsonString = _getScopedString(_keyDeletedLibraries);
+    return _decodeStringSet(jsonString);
+  }
+
+  Set<String> getDeletedLibrariesForProfile(String profileId) {
+    final scopedKey = '${_userPrefixForProfileId(profileId)}$_keyDeletedLibraries';
+    final jsonString = prefs.getString(scopedKey);
+    return _decodeStringSet(jsonString);
+  }
+
   Set<String> _decodeStringSet(String? jsonString) {
     if (jsonString == null) return {};
 
@@ -341,6 +362,7 @@ class StorageService extends BaseSharedPreferencesService {
       _clearLibraryPreferencesForServerPrefix('', serverId),
       _filterServerEntriesFromAllStringListKeys(_keyLibraryOrder, serverId),
       _filterServerEntriesFromAllStringListKeys(_keyHiddenLibraries, serverId),
+      _filterServerEntriesFromAllStringListKeys(_keyDeletedLibraries, serverId),
       _clearServerSelectedLibraryKeysEverywhere(serverId),
       _clearServerPerLibraryKeysEverywhere(_prefixLibrarySort, serverId),
       _clearServerPerLibraryKeysEverywhere(_prefixLibraryFilters, serverId),
@@ -353,6 +375,7 @@ class StorageService extends BaseSharedPreferencesService {
     await Future.wait([
       _filterServerEntriesFromStringList('$prefix$_keyLibraryOrder', serverId),
       _filterServerEntriesFromStringList('$prefix$_keyHiddenLibraries', serverId),
+      _filterServerEntriesFromStringList('$prefix$_keyDeletedLibraries', serverId),
       _clearSelectedLibraryForServer('$prefix$_keySelectedLibraryKey', serverId),
       _clearKeysWithPrefixForServer('$prefix$_prefixLibrarySort', serverId),
       _clearKeysWithPrefixForServer('$prefix$_prefixLibraryFilters', serverId),

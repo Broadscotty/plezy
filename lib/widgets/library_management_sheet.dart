@@ -115,10 +115,19 @@ List<ContextMenuItem> _getLibraryMenuItems(MediaLibrary library) {
     confirmationMessage: t.libraries.refreshMetadataConfirm(title: library.title),
     isDestructive: true,
   );
+  final deleteItem = ContextMenuItem(
+    value: 'delete',
+    icon: Symbols.delete_rounded,
+    label: t.libraries.deleteLibrary,
+    requiresConfirmation: true,
+    confirmationTitle: t.libraries.deleteLibrary,
+    confirmationMessage: t.libraries.deleteLibraryConfirm(title: library.title),
+    isDestructive: true,
+  );
   // Scan / analyze / empty trash hit Plex-only endpoints, so backend
   // capability gating keeps them out of Jellyfin menus. The library-qualified
   // resolver independently requires the exact owning Plex server.
-  if (library.backend != MediaBackend.plex) return [refresh];
+  if (library.backend != MediaBackend.plex) return [refresh, deleteItem];
   return [
     ContextMenuItem(
       value: 'scan',
@@ -146,6 +155,7 @@ List<ContextMenuItem> _getLibraryMenuItems(MediaLibrary library) {
       confirmationMessage: t.libraries.emptyTrashConfirm(title: library.title),
       isDestructive: true,
     ),
+    deleteItem,
   ];
 }
 
@@ -178,6 +188,9 @@ Future<void> _handleLibraryMenuAction(BuildContext context, String action, Media
       break;
     case 'empty_trash':
       unawaited(_emptyLibraryTrash(context, library));
+      break;
+    case 'delete':
+      unawaited(_deleteLibrary(context, library));
       break;
   }
 }
@@ -284,6 +297,13 @@ Future<void> _analyzeLibrary(BuildContext context, MediaLibrary library) {
     successMessage: t.libraries.analysisStarted(title: library.title),
     failureMessage: (error) => t.libraries.failedToAnalyze(error: error),
   );
+}
+
+Future<void> _deleteLibrary(BuildContext context, MediaLibrary library) async {
+  final hiddenProvider = context.read<HiddenLibrariesProvider>();
+  await hiddenProvider.deleteLibrary(library.globalKey);
+  if (!context.mounted) return;
+  showSuccessSnackBar(context, message: t.libraries.hideLibrary); // re-use a generic snackbar; the confirmation dialog is the primary feedback
 }
 
 class _LibraryManagementSheet extends StatefulWidget {
