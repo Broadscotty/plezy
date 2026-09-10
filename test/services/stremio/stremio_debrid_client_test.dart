@@ -22,7 +22,15 @@ const _formulioManifest = <String, dynamic>{
     <String, dynamic>{'name': 'stream', 'types': ['series'], 'idPrefixes': ['hpy']},
   ],
   'catalogs': [
-    <String, dynamic>{'type': 'series', 'id': 'formulio-series', 'name': 'Formulio'},
+    <String, dynamic>{
+      'type': 'series',
+      'id': 'formulio-series',
+      'name': 'Formulio',
+      'extra': [
+        <String, dynamic>{'isRequired': false, 'name': 'search'},
+        <String, dynamic>{'isRequired': false, 'name': 'genre', 'options': ['Formula Racing', 'Moto Racing']},
+      ],
+    },
   ],
 };
 
@@ -261,7 +269,7 @@ void main() {
   });
 
   group('fetchLibraryPagedContent', () {
-    test('fetches Formulio catalog via stream addon', () async {
+    test('fetches Formulio catalog via stream addon without skip extra', () async {
       final client = _buildClient();
       final page = await client.fetchLibraryPagedContent(
         'series|formulio-series',

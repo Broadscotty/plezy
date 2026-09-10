@@ -77,7 +77,13 @@ Never _unsupported(String what) => throw UnsupportedError('$what is not supporte
 /// serves it. Meta/search/catalog fetches must go to the owning addon:
 /// Cinemeta only resolves `tt...` IMDb ids, stream addons like Formulio
 /// only resolve their own id space (e.g. `hpy...`).
-typedef _StremioCatalog = ({String type, String id, String name, bool fromStreamAddon});
+typedef _StremioCatalog = ({
+  String type,
+  String id,
+  String name,
+  bool fromStreamAddon,
+  Set<String> supportedExtras,
+});
 
 /// [MediaServerClient] backed by a single Stremio addon, resolving streams
 /// through Real-Debrid rather than a live media server.
@@ -258,11 +264,17 @@ class StremioDebridClient extends MediaServerClient {
     for (final c in rawStream.whereType<Map<String, dynamic>>()) {
       final id = c['id'] as String? ?? '';
       if (id.isEmpty) continue;
+      final extras = (c['extra'] as List? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map((e) => e['name'] as String? ?? '')
+          .where((name) => name.isNotEmpty)
+          .toSet();
       catalogs.add((
         type: c['type'] as String? ?? 'movie',
         id: id,
         name: c['name'] as String? ?? (id.isNotEmpty ? id : 'Catalog'),
         fromStreamAddon: true,
+        supportedExtras: extras,
       ));
     }
     if (catalogs.isNotEmpty) {
@@ -284,6 +296,7 @@ class StremioDebridClient extends MediaServerClient {
           id: id,
           name: c['name'] as String? ?? (id.isNotEmpty ? id : 'Catalog'),
           fromStreamAddon: false,
+          supportedExtras: const {'skip', 'search', 'genre'},
         ));
       }
     } on StremioAddonException catch (e) {
@@ -379,7 +392,14 @@ class StremioDebridClient extends MediaServerClient {
     final skip = query.offset;
     try {
       final addon = await _catalogAddonFor(parts[0], parts[1]);
-      final previews = await addon.fetchCatalog(parts[0], parts[1], extra: {'skip': skip.toString()});
+      final catalogs = await _loadCatalogs();
+      final catalog = catalogs.firstWhere(
+        (c) => c.type == parts[0] && c.id == parts[1],
+        orElse: () => (type: parts[0], id: parts[1], name: '', fromStreamAddon: false, supportedExtras: const {'skip'}),
+      );
+      final extra = <String, String>{};
+      if (catalog.supportedExtras.contains('skip')) extra['skip'] = skip.toString();
+      final previews = await addon.fetchCatalog(parts[0], parts[1], extra: extra.isEmpty ? null : extra);
       final items = previews.map(_mapPreviewToItem).toList();
       return LibraryPage(items: items, totalCount: fallbackPageTotal(offset: skip, itemCount: items.length), offset: skip);
     } on StremioAddonException {
@@ -713,7 +733,9 @@ class StremioDebridClient extends MediaServerClient {
       // catalogs only exist there, and asking Cinemeta for them is a 404.
       final addon = catalog.fromStreamAddon ? _streamAddon : _catalogAddon;
       try {
-        final previews = await addon.fetchCatalog(catalog.type, catalog.id, extra: {'search': query});
+        final extra = <String, String>{};
+        if (catalog.supportedExtras.contains('search')) extra['search'] = query;
+        final previews = await addon.fetchCatalog(catalog.type, catalog.id, extra: extra.isEmpty ? null : extra);
         for (final preview in previews) {
           final itemId = StremioItemId(preview.type, preview.id).toString();
           if (!seen.add(itemId)) continue;
