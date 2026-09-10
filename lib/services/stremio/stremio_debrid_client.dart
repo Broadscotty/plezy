@@ -281,29 +281,32 @@ class StremioDebridClient extends MediaServerClient {
       appLogger.i('Stremio: using stream addon catalogs: ${catalogs.map((c) => c.name).join(", ")}');
     }
 
-    // 2. Cinemeta's top catalogs (generic movie/series browsing), skipping
-    //    any (type, id) the stream addon already provides.
-    try {
-      final manifest = await _catalogAddon.fetchManifest();
-      final rawCatalogs = manifest['catalogs'] as List? ?? const [];
-      for (final c in rawCatalogs.whereType<Map<String, dynamic>>()) {
-        final id = c['id'] as String? ?? '';
-        final type = c['type'] as String? ?? 'movie';
-        if (id != 'top') continue;
-        if (catalogs.any((existing) => existing.type == type && existing.id == id)) continue;
-        catalogs.add((
-          type: type,
-          id: id,
-          name: c['name'] as String? ?? (id.isNotEmpty ? id : 'Catalog'),
-          fromStreamAddon: false,
-          supportedExtras: const {'skip', 'search', 'genre'},
-        ));
+    // 2. Cinemeta's top catalogs (generic movie/series browsing) — only
+    //    when the stream addon provides no catalogs of its own (e.g.
+    //    Torrentio only serves streams). When the addon already has
+    //    catalogs (Formulio, etc.), Cinemeta's generic Movies/TV Shows
+    //    would duplicate the user's other connections.
+    if (catalogs.isEmpty) {
+      try {
+        final manifest = await _catalogAddon.fetchManifest();
+        final rawCatalogs = manifest['catalogs'] as List? ?? const [];
+        for (final c in rawCatalogs.whereType<Map<String, dynamic>>()) {
+          final id = c['id'] as String? ?? '';
+          final type = c['type'] as String? ?? 'movie';
+          if (id != 'top') continue;
+          if (catalogs.any((existing) => existing.type == type && existing.id == id)) continue;
+          catalogs.add((
+            type: type,
+            id: id,
+            name: c['name'] as String? ?? (id.isNotEmpty ? id : 'Catalog'),
+            fromStreamAddon: false,
+            supportedExtras: const {'skip', 'search', 'genre'},
+          ));
+        }
+      } on StremioAddonException catch (e) {
+        if (catalogs.isEmpty) rethrow;
+        appLogger.w('Stremio: Cinemeta catalogs unavailable, using stream addon catalogs only', error: e);
       }
-    } on StremioAddonException catch (e) {
-      // Cinemeta being unreachable doesn't have to kill the debrid server
-      // entirely when the stream addon's catalogs loaded fine.
-      if (catalogs.isEmpty) rethrow;
-      appLogger.w('Stremio: Cinemeta catalogs unavailable, using stream addon catalogs only', error: e);
     }
 
     _catalogs = catalogs;
