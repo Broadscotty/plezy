@@ -73,7 +73,7 @@ jobs:
           gh release create stremio-latest release-assets/*.apk \
             --repo "${{ github.repository }}" \
             --title "Stremio build (${{ github.ref_name }})" \
-            --notes "Automated sideload APK from branch ${{ github.ref_name }} at commit ${{ github.sha }}. Debug-signed, applicationId com.edde746.plezy.sideload. Download plezy-arm64-v8a.apk directly on your phone." \
+            --notes "Automated sideload APK from branch ${{ github.ref_name }} at commit ${{ github.sha }}. Debug-signed, applicationId com.edde746.plezy.sideload. Built by Big Pickle via opencode. Download plezy-arm64-v8a.apk directly on your phone." \
             --latest
 
       - name: Print direct download URL
