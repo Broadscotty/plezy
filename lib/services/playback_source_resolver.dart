@@ -107,7 +107,10 @@ class PlaybackSourceResolver {
     required bool offlineLibraryMode,
   }) {
     if (client != null) {
-      return sourceKind == PlaybackSourceKind.localFile
+      // Debrid has no report surface (every PlaybackReport* call throws), so
+      // watch progress can only be persisted locally -- run it through the
+      // offline-fallback queue on every debrid playback.
+      return client.backend == MediaBackend.debrid || sourceKind == PlaybackSourceKind.localFile
           ? PlaybackReportingMode.onlineWithOfflineFallback
           : PlaybackReportingMode.online;
     }

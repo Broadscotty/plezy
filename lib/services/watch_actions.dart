@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
 import '../media/ids.dart';
+import '../media/media_backend.dart';
 import '../media/media_item.dart';
 import '../media/media_server_client.dart';
 import '../providers/offline_mode_provider.dart';
@@ -57,6 +58,20 @@ class WatchActions {
     if (serverId == null) return WatchMarkOutcome.skipped;
     final client = context.tryGetMediaClientForServer(ServerId(serverId));
     if (client == null) return WatchMarkOutcome.skipped;
+
+    // The debrid backend has no server-side watch state (markWatched is a
+    // no-op), so the only durable record is a local OfflineWatchProgress row,
+    // which sync rules and download cleanup read. Route through the offline
+    // queue so manual marks persist locally too.
+    if (client.backend == MediaBackend.debrid) {
+      final offlineWatch = context.read<OfflineWatchProvider>();
+      if (watched) {
+        await offlineWatch.markAsWatched(serverId: ServerId(serverId), itemId: item.id);
+      } else {
+        await offlineWatch.markAsUnwatched(serverId: ServerId(serverId), itemId: item.id);
+      }
+      return WatchMarkOutcome.queuedOffline;
+    }
 
     if (watched) {
       await client.markWatched(item);
