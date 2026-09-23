@@ -13,6 +13,7 @@ import '../../widgets/focusable_list_tile.dart';
 import '../../widgets/settings_section.dart';
 import 'seerr_connect_screen.dart';
 import 'seerr_settings_screen.dart';
+import 'stremio_settings_screen.dart';
 import 'tracker_settings_screen.dart';
 import 'trakt_settings_screen.dart';
 
@@ -38,7 +39,7 @@ class ServicesSettingsScreen extends StatelessWidget {
                 ).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             ),
-            SettingsGroup(children: [_trakt(), _mal(), _anilist(), _simkl(), _seerr()]),
+            SettingsGroup(children: [_trakt(), _stremio(), _mal(), _anilist(), _simkl(), _seerr()]),
             const SizedBox(height: 24),
           ]),
         ),
@@ -59,6 +60,15 @@ class ServicesSettingsScreen extends StatelessWidget {
         }
       },
     ),
+  );
+
+  Widget _stremio() => _ServiceHubRow(
+    leading: const AppIcon(Symbols.live_tv_rounded),
+    title: 'Stremio',
+    username: null,
+    onTap: () {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const StremioSettingsScreen()));
+    },
   );
 
   Widget _mal() => Consumer<TrackersProvider>(

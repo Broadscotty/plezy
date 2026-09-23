@@ -402,6 +402,8 @@ class SettingsService extends BaseSharedPreferencesService {
   static const enableMalScrobble = BoolPref('enable_mal_scrobble', defaultValue: true);
   static const enableAnilistScrobble = BoolPref('enable_anilist_scrobble', defaultValue: true);
   static const enableSimklScrobble = BoolPref('enable_simkl_scrobble', defaultValue: true);
+  static const enableStremioSync = BoolPref('enable_stremio_sync', defaultValue: true);
+  static const stremioAuthKey = NullableStringPref('stremio_auth_key');
   static const matchContentFrameRate = BoolPref('match_content_frame_rate');
   static const tunneledPlayback = BoolPref('tunneled_playback', defaultValue: true);
   static const dvConversionMode = EnumPref<DvConversionModePreference>(

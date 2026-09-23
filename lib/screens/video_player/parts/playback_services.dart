@@ -299,6 +299,7 @@ extension _VideoPlayerPlaybackServiceMethods on VideoPlayerScreenState {
         await Future.wait<void>([
           DiscordRPCService.instance.stopPlayback(),
           TraktScrobbleService.instance.stopPlayback(),
+          StremioSyncService.instance.stopPlayback(),
           TrackerCoordinator.instance.stopPlayback(),
         ]);
       } catch (e, st) {
@@ -363,6 +364,7 @@ extension _VideoPlayerPlaybackServiceMethods on VideoPlayerScreenState {
     if (mediaClient != null) {
       unawaited(DiscordRPCService.instance.startPlayback(metadata, mediaClient));
       unawaited(TraktScrobbleService.instance.startPlayback(metadata, mediaClient, isLive: widget.isLive));
+      unawaited(StremioSyncService.instance.startPlayback(metadata, mediaClient, isLive: widget.isLive));
       unawaited(TrackerCoordinator.instance.startPlayback(metadata, mediaClient, isLive: widget.isLive));
     }
   }
@@ -557,10 +559,12 @@ extension _VideoPlayerPlaybackServiceMethods on VideoPlayerScreenState {
       );
       DiscordRPCService.instance.updatePosition(position);
       TraktScrobbleService.instance.updatePosition(position);
+      StremioSyncService.instance.updatePosition(position);
       TrackerCoordinator.instance.updatePosition(position);
       // Keep Trakt's known duration current — mpv only emits on the duration
       // stream once per load, but this is cheap and avoids an extra listener.
       TraktScrobbleService.instance.updateDuration(currentPlayer.state.duration);
+      StremioSyncService.instance.updateDuration(currentPlayer.state.duration);
       TrackerCoordinator.instance.updateDuration(currentPlayer.state.duration);
     });
 
@@ -611,9 +615,11 @@ extension _VideoPlayerPlaybackServiceMethods on VideoPlayerScreenState {
     if (isPlaying) {
       DiscordRPCService.instance.resumePlayback();
       TraktScrobbleService.instance.resumePlayback();
+      StremioSyncService.instance.resumePlayback();
     } else {
       DiscordRPCService.instance.pausePlayback();
       TraktScrobbleService.instance.pausePlayback();
+      StremioSyncService.instance.pausePlayback();
     }
 
     // Update auto-PiP readiness

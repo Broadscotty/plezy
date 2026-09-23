@@ -43,6 +43,7 @@ import '../services/fullscreen_state_manager.dart';
 import '../services/discord_rpc_service.dart';
 import '../services/trackers/tracker_coordinator.dart';
 import '../services/trakt/trakt_scrobble_service.dart';
+import '../services/stremio/stremio_sync_service.dart';
 import '../services/episode_navigation_service.dart';
 import '../services/apple_tv_remote_touch_service.dart';
 import '../services/media_controls_manager.dart';
@@ -1573,6 +1574,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
 
     DiscordRPCService.instance.stopPlayback();
     TraktScrobbleService.instance.stopPlayback();
+    StremioSyncService.instance.stopPlayback();
     TrackerCoordinator.instance.stopPlayback();
 
     if (_fullscreenListenerAttached) {
