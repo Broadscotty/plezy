@@ -101,7 +101,7 @@ class StremioApiClient {
   Future<String?> readLink(String code) async {
     try {
       final response = await _http
-          .get(Uri.parse('$_linkBase/read?type=Read&code=${Uri.encodeFragment(code.trim().toUpperCase())}'))
+          .get(Uri.parse('$_linkBase/read?type=Read&code=${Uri.encodeComponent(code.trim().toUpperCase())}'))
           .timeout(const Duration(seconds: 20));
       if (response.statusCode != 200) return null;
       final payload = jsonDecode(response.body);
@@ -164,7 +164,8 @@ class StremioApiClient {
         .timeout(const Duration(seconds: 20));
     if (response.statusCode != 200) throw StremioApiException('cinemeta HTTP ${response.statusCode} for $imdb');
     final payload = jsonDecode(response.body);
-    final videos = payload is Map<String, dynamic> ? (payload['meta'] as Map<String, dynamic>?)?['videos'] : null;
+    final dynamic meta = (payload is Map<String, dynamic>) ? payload['meta'] : null;
+    final videos = (meta is Map<String, dynamic>) ? meta['videos'] : null;
     if (videos is! List) throw StremioApiException('cinemeta returned no videos for $imdb');
     final parsed = videos.whereType<Map<String, dynamic>>().where((v) => v['id'] is String && (v['id'] as String).isNotEmpty).toList();
     parsed.sort((a, b) {

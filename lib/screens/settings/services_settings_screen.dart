@@ -39,7 +39,7 @@ class ServicesSettingsScreen extends StatelessWidget {
                 ).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             ),
-            SettingsGroup(children: [_trakt(), _stremio(), _mal(), _anilist(), _simkl(), _seerr()]),
+            SettingsGroup(children: [_trakt(), _stremio(context), _mal(), _anilist(), _simkl(), _seerr()]),
             const SizedBox(height: 24),
           ]),
         ),
@@ -62,7 +62,7 @@ class ServicesSettingsScreen extends StatelessWidget {
     ),
   );
 
-  Widget _stremio() => _ServiceHubRow(
+  Widget _stremio(BuildContext context) => _ServiceHubRow(
     leading: const AppIcon(Symbols.live_tv_rounded),
     title: 'Stremio',
     username: null,

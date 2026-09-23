@@ -174,7 +174,8 @@ class StremioSyncService {
     if (target == null) return;
 
     final now = DateTime.now();
-    if (!force && _lastPushAt != null && now.difference(_lastPushAt) < _pushThrottle) return;
+    final lastPushAt = _lastPushAt;
+    if (!force && lastPushAt != null && now.difference(lastPushAt) < _pushThrottle) return;
 
     final durationMs = _durationMs;
     if (durationMs == null || durationMs <= 0) return;
