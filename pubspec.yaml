@@ -65,8 +65,8 @@ dependencies:
   # host-scoped trust setting shared by every media-server HTTP client.
   background_downloader:
     git:
-      url: https://github.com/edde746/background_downloader
-      ref: 1bcc9978e9b5e503dd08176cc423cfabee703761
+      url: https://github.com/Broadscotty/plezy
+      ref: f581cf05f46c2c3212fa5dfa51bb4bafddb17943
   sentry_flutter: ^9.25.0
   auto_updater:
     git:
