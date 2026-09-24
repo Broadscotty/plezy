@@ -48,6 +48,7 @@ class StremioApiClient {
   final http.Client _http;
 
   final Map<String, List<String>> _videoIdCache = {};
+  final Map<String, DateTime> _videoIdFailedAt = {};
 
   Future<dynamic> _post(String path, Map<String, dynamic> body) async {
     final response = await _http
@@ -181,8 +182,27 @@ class StremioApiClient {
   // ------------------------------------------------------------- cinemeta
 
   /// Ordered episode ids (`tt…:season:episode`) for a series, from Cinemeta.
-  /// Cached per imdb id for the process lifetime.
+  /// Cached per imdb id for the process lifetime; recent failures are
+  /// negative-cached briefly so a dead Cinemeta cannot re-stall the
+  /// per-episode loops that call this (every caller already catches).
   Future<List<String>> seriesVideoIds(String imdb) async {
+    final cached = _videoIdCache[imdb];
+    if (cached != null) return cached;
+    final failedAt = _videoIdFailedAt[imdb];
+    if (failedAt != null && DateTime.now().difference(failedAt) < const Duration(seconds: 30)) {
+      throw StremioApiException('cinemeta failure backoff active for $imdb');
+    }
+    try {
+      final ids = await _seriesVideoIdsUncached(imdb);
+      _videoIdFailedAt.remove(imdb);
+      return ids;
+    } catch (e) {
+      _videoIdFailedAt[imdb] = DateTime.now();
+      rethrow;
+    }
+  }
+
+  Future<List<String>> _seriesVideoIdsUncached(String imdb) async {
     final cached = _videoIdCache[imdb];
     if (cached != null) return cached;
     final response = await _http

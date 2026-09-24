@@ -498,12 +498,20 @@ class StremioDebridClient extends MediaServerClient {
       return entry.$2;
     }
     try {
-      final items = await _accountApi.getItems(authKey, [imdb]);
+      // Bound well below the shared 30s transport timeout: this read sits on
+      // the detail/download critical path, and the season loops that call
+      // _withAccountWatch per episode would otherwise serialise one full
+      // timeout per uncached show when the account API flaps.
+      final items = await _accountApi.getItems(authKey, [imdb]).timeout(const Duration(seconds: 10));
       final state = items.isEmpty ? null : _stateOf(items.first);
       _accountStateCache[imdb] = (now, state);
       return state;
     } catch (e) {
       appLogger.w('Stremio: account state read failed for $imdb', error: e);
+      // Cache the miss too. Callers treat a null state as pass-through (item
+      // left un-merged), so a cached failure renders identically to a failed
+      // read -- but it stops every episode in a loop re-paying the timeout.
+      _accountStateCache[imdb] = (DateTime.now(), null);
       return null;
     }
   }
@@ -710,12 +718,17 @@ class StremioDebridClient extends MediaServerClient {
     final offset = int.tryParse('${state['timeOffset'] ?? 0}') ?? 0;
     final timesWatched = int.tryParse('${state['timesWatched'] ?? 0}') ?? 0;
     final lastViewedAt = DateTime.tryParse('${state['lastWatched'] ?? ''}')?.millisecondsSinceEpoch;
+    // Stremio stores timeOffset == duration on fully watched rows (manual
+    // marks write exactly that). Merging it as a resume point opens playback
+    // at EOF -- instant black screen / immediate finish -- so only carry an
+    // offset that is genuinely mid-file.
+    final resumeOffset = (offset > 0 && (duration <= 0 || offset < duration)) ? offset : 0;
 
     if (parsed.type == 'movie') {
       return item.copyWith(
         viewCount: timesWatched > 0 ? timesWatched : item.viewCount,
         durationMs: duration > 0 ? duration : item.durationMs,
-        viewOffsetMs: offset > 0 ? offset : item.viewOffsetMs,
+        viewOffsetMs: resumeOffset > 0 ? resumeOffset : item.viewOffsetMs,
         lastViewedAt: lastViewedAt ?? item.lastViewedAt,
       );
     }
@@ -750,7 +763,7 @@ class StremioDebridClient extends MediaServerClient {
         return item.copyWith(
           viewCount: watched.contains(videoId) ? 1 : item.viewCount,
           durationMs: parked && duration > 0 ? duration : item.durationMs,
-          viewOffsetMs: parked && offset > 0 ? offset : item.viewOffsetMs,
+          viewOffsetMs: parked && resumeOffset > 0 ? resumeOffset : item.viewOffsetMs,
           lastViewedAt: parked ? (lastViewedAt ?? item.lastViewedAt) : item.lastViewedAt,
         );
       case MediaKind.season:
@@ -765,7 +778,7 @@ class StremioDebridClient extends MediaServerClient {
           viewedLeafCount: leafTotal != null ? watched.length : item.viewedLeafCount,
           viewCount: leafTotal == null && watched.isNotEmpty ? watched.length : item.viewCount,
           durationMs: duration > 0 ? duration : item.durationMs,
-          viewOffsetMs: offset > 0 ? offset : item.viewOffsetMs,
+          viewOffsetMs: resumeOffset > 0 ? resumeOffset : item.viewOffsetMs,
           lastViewedAt: lastViewedAt ?? item.lastViewedAt,
         );
     }
