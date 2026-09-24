@@ -281,6 +281,92 @@ class StremioApiClient {
     await putItems(authKey, [item]);
   }
 
+  /// Writes a manual watched/unwatched mark for one movie, or for the
+  /// episode / season / whole show named by [season]/[episode] on a series.
+  /// Unlike [pushProgress] this needs no playback position: a context-menu
+  /// mark must land even when Plezy never played the item. Idempotent --
+  /// offline-queue replay calls it again for the same mark.
+  Future<void> setWatchedFlag({
+    required String authKey,
+    required String imdb,
+    required bool isEpisode,
+    int? season,
+    int? episode,
+    required bool watched,
+    required String title,
+    required String nowIso,
+  }) async {
+    if (imdb.isEmpty) return;
+    final fetched = await getItems(authKey, [imdb]);
+    final item = fetched.isNotEmpty
+        ? Map<String, dynamic>.from(fetched.first)
+        : _newItem(imdb: imdb, title: title, isEpisode: isEpisode, now: nowIso);
+    final rawState = item['state'];
+    final state = <String, dynamic>{
+      ..._defaultState(),
+      if (rawState is Map<String, dynamic>) ...rawState,
+    };
+
+    if (!isEpisode) {
+      final duration = int.tryParse('${state['duration'] ?? 0}') ?? 0;
+      if (watched) {
+        final times = int.tryParse('${state['timesWatched'] ?? 0}') ?? 0;
+        state['timesWatched'] = times > 0 ? times : 1;
+        if (duration > 0) state['timeOffset'] = duration;
+        state['lastWatched'] = nowIso;
+        state['video_id'] = imdb;
+      } else {
+        state['timesWatched'] = 0;
+        state['timeOffset'] = 0;
+      }
+    } else {
+      List<String> videoIds;
+      try {
+        videoIds = await seriesVideoIds(imdb);
+      } catch (_) {
+        // Cinemeta unreachable: bits cannot be placed without the id list.
+        return;
+      }
+      if (videoIds.isEmpty) return;
+      final Set<String> targets;
+      if (season == null) {
+        targets = videoIds.toSet();
+      } else if (episode == null) {
+        targets = videoIds.where((id) => _videoParts(id)?.$1 == season).toSet();
+      } else {
+        targets = videoIds.where((id) {
+          final parts = _videoParts(id);
+          return parts != null && parts.$1 == season && parts.$2 == episode;
+        }).toSet();
+      }
+      if (targets.isEmpty) return;
+      final current = decodeWatchedBitfield(state['watched'], videoIds);
+      final next = watched ? (current.union(targets)) : (current.difference(targets));
+      // encode returns null for an empty set, which clears the field.
+      state['watched'] = encodeWatchedBitfield(next, videoIds);
+      if (watched) state['lastWatched'] = nowIso;
+      final parkedVideoId = '${state['video_id'] ?? ''}';
+      if (parkedVideoId.isNotEmpty && targets.contains(parkedVideoId)) {
+        final duration = int.tryParse('${state['duration'] ?? 0}') ?? 0;
+        if (watched) {
+          if (duration > 0) state['timeOffset'] = duration;
+        } else {
+          state['timeOffset'] = 0;
+        }
+      }
+    }
+
+    item['state'] = state;
+    item['_mtime'] = nowIso;
+    item.putIfAbsent('_ctime', () => nowIso);
+    item.putIfAbsent('removed', () => false);
+    item.putIfAbsent('temp', () => true);
+    item.putIfAbsent('behaviorHints', () => <String, dynamic>{});
+    item['name'] = item['name'] ?? title;
+    item['type'] = item['type'] ?? (isEpisode ? 'series' : 'movie');
+    await putItems(authKey, [item]);
+  }
+
   Map<String, dynamic> _newItem({required String imdb, required String title, required bool isEpisode, required String now}) => {
     '_id': imdb,
     'name': title.isEmpty ? imdb : title,

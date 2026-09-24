@@ -121,6 +121,11 @@ class StremioDebridClient extends MediaServerClient {
   List<Map<String, dynamic>>? _accountItemsCache;
   DateTime? _accountItemsCacheAt;
 
+  /// Per-show account `state` reads backing the watch-state merges in detail
+  /// views: a season switch touches several views of the same show within
+  /// seconds, so cache briefly (manual marks clear the entry immediately).
+  final Map<String, (DateTime, Map<String, dynamic>?)> _accountStateCache = {};
+
   /// The stream addon's manifest, parsed once for its display name, catalogs,
   /// and meta capabilities. Null = not loaded yet; an empty map marks a
   /// load that already failed (don't retry every call).
@@ -467,6 +472,47 @@ class StremioDebridClient extends MediaServerClient {
     }
   }
 
+  /// Revealed account auth key, or null when the Stremio account is not
+  /// connected / the stored credential cannot be read.
+  Future<String?> _accountAuthKey() async {
+    try {
+      final settings = await SettingsService.getInstance();
+      final protected = settings.read(SettingsService.stremioAuthKey);
+      if (protected == null) return null;
+      return await CredentialVault.reveal(protected);
+    } catch (e) {
+      appLogger.w('Stremio: account auth key read failed', error: e);
+      return null;
+    }
+  }
+
+  /// One show/movie's datastore `state` map, cached briefly. Null state = no
+  /// row in the store yet; a null RETURN = account unavailable or read failed
+  /// (callers then leave the item un-merged rather than rendering lies).
+  Future<Map<String, dynamic>?> _accountState(String imdb) async {
+    final authKey = await _accountAuthKey();
+    if (authKey == null) return null;
+    final now = DateTime.now();
+    final entry = _accountStateCache[imdb];
+    if (entry != null && now.difference(entry.$1) < const Duration(seconds: 60)) {
+      return entry.$2;
+    }
+    try {
+      final items = await _accountApi.getItems(authKey, [imdb]);
+      final state = items.isEmpty ? null : _stateOf(items.first);
+      _accountStateCache[imdb] = (now, state);
+      return state;
+    } catch (e) {
+      appLogger.w('Stremio: account state read failed for $imdb', error: e);
+      return null;
+    }
+  }
+
+  static Map<String, dynamic>? _stateOf(Map<String, dynamic> item) {
+    final state = item['state'];
+    return state is Map<String, dynamic> ? state : null;
+  }
+
   /// The account's full `libraryItem` datastore, cached briefly: the browse
   /// tab pages through it and every uncached pull downloads everything.
   Future<List<Map<String, dynamic>>> _accountItems(String authKey) async {
@@ -559,10 +605,15 @@ class StremioDebridClient extends MediaServerClient {
     final watched = map['watched'];
 
     int? viewCount = timesWatched > 0 ? timesWatched : null;
+    int? leafCount;
+    int? viewedLeafCount;
     if (type == 'series' && watched is String && watched.isNotEmpty) {
       try {
         final videoIds = await _accountApi.seriesVideoIds(id);
-        viewCount = decodeWatchedBitfield(watched, videoIds).length;
+        final decoded = decodeWatchedBitfield(watched, videoIds);
+        leafCount = videoIds.length;
+        viewedLeafCount = decoded.length;
+        viewCount = decoded.isEmpty ? null : decoded.length;
       } catch (e) {
         appLogger.w('Stremio: watched-bitfield decode failed for $id', error: e);
         viewCount = null;
@@ -578,6 +629,8 @@ class StremioDebridClient extends MediaServerClient {
       durationMs: duration > 0 ? duration : null,
       viewOffsetMs: offset > 0 ? offset : null,
       viewCount: viewCount,
+      leafCount: leafCount,
+      viewedLeafCount: viewedLeafCount,
       lastViewedAt: lastViewedAt,
       addedAt: addedAt,
       serverId: serverId.toString(),
@@ -643,6 +696,81 @@ class StremioDebridClient extends MediaServerClient {
     );
   }
 
+  /// Overlay the account datastore's watch/progress state onto an item built
+  /// from Cinemeta meta alone -- meta carries no view counts, so without this
+  /// every detail/episode view renders as unwatched no matter what Stremio
+  /// itself shows. No-ops when the account is unavailable or a read fails.
+  Future<MediaItem> _withAccountWatch(MediaItem item) async {
+    final parsed = StremioItemId.parse(item.id);
+    final split = _splitShowVideoId(parsed.stremioId);
+    final state = await _accountState(split.showId);
+    if (state == null) return item;
+
+    final duration = int.tryParse('${state['duration'] ?? 0}') ?? 0;
+    final offset = int.tryParse('${state['timeOffset'] ?? 0}') ?? 0;
+    final timesWatched = int.tryParse('${state['timesWatched'] ?? 0}') ?? 0;
+    final lastViewedAt = DateTime.tryParse('${state['lastWatched'] ?? ''}')?.millisecondsSinceEpoch;
+
+    if (parsed.type == 'movie') {
+      return item.copyWith(
+        viewCount: timesWatched > 0 ? timesWatched : item.viewCount,
+        durationMs: duration > 0 ? duration : item.durationMs,
+        viewOffsetMs: offset > 0 ? offset : item.viewOffsetMs,
+        lastViewedAt: lastViewedAt ?? item.lastViewedAt,
+      );
+    }
+
+    // Series rows: the watched bitfield lives on the SHOW's state.
+    final bitfield = state['watched'];
+    Set<String>? watched;
+    int? leafTotal;
+    if (bitfield is String && bitfield.isNotEmpty) {
+      try {
+        final videoIds = await _accountApi.seriesVideoIds(split.showId);
+        watched = decodeWatchedBitfield(bitfield, videoIds);
+        leafTotal = videoIds.length;
+      } catch (e) {
+        appLogger.w('Stremio: watched-bitfield decode failed for ${split.showId}', error: e);
+      }
+    } else {
+      watched = <String>{};
+      try {
+        leafTotal = (await _accountApi.seriesVideoIds(split.showId)).length;
+      } catch (_) {
+        // Cinemeta unreachable: totals stay unknown, but an absent bitfield
+        // still means nothing is watched.
+      }
+    }
+    if (watched == null) return item;
+
+    switch (item.kind) {
+      case MediaKind.episode:
+        final videoId = '${item.raw?['stremioId'] ?? ''}';
+        final parked = '${state['video_id'] ?? ''}' == videoId;
+        return item.copyWith(
+          viewCount: watched.contains(videoId) ? 1 : item.viewCount,
+          durationMs: parked && duration > 0 ? duration : item.durationMs,
+          viewOffsetMs: parked && offset > 0 ? offset : item.viewOffsetMs,
+          lastViewedAt: parked ? (lastViewedAt ?? item.lastViewedAt) : item.lastViewedAt,
+        );
+      case MediaKind.season:
+        final total = item.leafCount ?? item.childCount;
+        if (total == null) return item;
+        final season = item.index;
+        final viewed = watched.where((id) => _splitShowVideoId(id).season == season).length;
+        return item.copyWith(leafCount: total, viewedLeafCount: viewed);
+      default:
+        return item.copyWith(
+          leafCount: leafTotal ?? item.leafCount,
+          viewedLeafCount: leafTotal != null ? watched.length : item.viewedLeafCount,
+          viewCount: leafTotal == null && watched.isNotEmpty ? watched.length : item.viewCount,
+          durationMs: duration > 0 ? duration : item.durationMs,
+          viewOffsetMs: offset > 0 ? offset : item.viewOffsetMs,
+          lastViewedAt: lastViewedAt ?? item.lastViewedAt,
+        );
+    }
+  }
+
   /// Resolve [id] (`show`, `season`, or `episode` scoped) to a [MediaItem]
   /// with playable versions. Show/movie ids map the preview; season ids build
   /// a synthetic season row over the flat videos list; episode ids find the
@@ -689,6 +817,8 @@ class StremioDebridClient extends MediaServerClient {
       item = _mapPreviewToItem(meta);
     }
 
+    item = await _withAccountWatch(item);
+
     final versions = await _streamsToVersions(parsed.type, parsed.stremioId);
     final resolved = versions.isEmpty ? item : item.copyWith(mediaVersions: versions);
     // Nothing else writes to the metadata cache for this backend -- without
@@ -734,6 +864,9 @@ class StremioDebridClient extends MediaServerClient {
           .map((video) => _mapEpisode(meta!, video, stremioType: parsed.type, showId: split.showId, seasonId: seasonId))
           .toList()
         ..sort((a, b) => (a.index ?? 0).compareTo(b.index ?? 0));
+      for (var i = 0; i < episodes.length; i++) {
+        episodes[i] = await _withAccountWatch(episodes[i]);
+      }
       for (final episode in episodes) {
         await cache.put(serverId, episode.id, episode.toJson());
       }
@@ -773,6 +906,9 @@ class StremioDebridClient extends MediaServerClient {
       );
     }).toList()
       ..sort((a, b) => (a.index ?? 0).compareTo(b.index ?? 0));
+    for (var i = 0; i < seasons.length; i++) {
+      seasons[i] = await _withAccountWatch(seasons[i]);
+    }
     for (final season in seasons) {
       await cache.put(serverId, season.id, season.toJson());
     }
@@ -826,6 +962,9 @@ class StremioDebridClient extends MediaServerClient {
               : StremioItemId(parsed.type, '${split.showId}:${split.season}').toString(),
         ),
     ];
+    for (var i = 0; i < episodes.length; i++) {
+      episodes[i] = await _withAccountWatch(episodes[i]);
+    }
     for (final episode in episodes) {
       await cache.put(serverId, episode.id, episode.toJson());
     }
@@ -870,6 +1009,9 @@ class StremioDebridClient extends MediaServerClient {
         )
         .toList()
       ..sort(compareEpisodesByWatchOrder);
+    for (var i = 0; i < episodes.length; i++) {
+      episodes[i] = await _withAccountWatch(episodes[i]);
+    }
     for (final episode in episodes) {
       await cache.put(serverId, episode.id, episode.toJson());
     }
@@ -964,10 +1106,42 @@ class StremioDebridClient extends MediaServerClient {
       _unsupported('fetchPersonMediaPage');
 
   @override
-  Future<void> markWatched(MediaItem item) async {}
+  Future<void> markWatched(MediaItem item) => _setAccountWatched(item, watched: true);
 
   @override
-  Future<void> markUnwatched(MediaItem item) async {}
+  Future<void> markUnwatched(MediaItem item) => _setAccountWatched(item, watched: false);
+
+  /// Manual mark: writes the account datastore (movies flip `timesWatched`,
+  /// series mutate the watched bitfield for the episode / season / show the
+  /// item id names). Failures log and swallow -- the OfflineWatchProgress
+  /// queue keeps the durable record and its replay retries this write, which
+  /// is exactly why marks used to vanish on restart (the old no-op lost the
+  /// replay).
+  Future<void> _setAccountWatched(MediaItem item, {required bool watched}) async {
+    try {
+      final authKey = await _accountAuthKey();
+      if (authKey == null) return;
+      final parsed = StremioItemId.parse(item.id);
+      final split = _splitShowVideoId(parsed.stremioId);
+      final isSeries = parsed.type == 'series';
+      await _accountApi.setWatchedFlag(
+        authKey: authKey,
+        imdb: split.showId,
+        isEpisode: isSeries,
+        season: isSeries ? split.season : null,
+        episode: isSeries ? split.episode : null,
+        watched: watched,
+        title: item.displayTitle,
+        nowIso: DateTime.now().toUtc().toIso8601String(),
+      );
+      // Fresh reads must reflect the mark, not a pre-mark cache entry.
+      _accountStateCache.remove(split.showId);
+      _accountItemsCache = null;
+      _accountItemsCacheAt = null;
+    } catch (e) {
+      appLogger.w('Stremio: watch mark write failed for ${item.id}', error: e);
+    }
+  }
 
   @override
   Future<void> removeFromContinueWatching(MediaItem item) => _unsupported('removeFromContinueWatching');

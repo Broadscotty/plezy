@@ -59,18 +59,23 @@ class WatchActions {
     final client = context.tryGetMediaClientForServer(ServerId(serverId));
     if (client == null) return WatchMarkOutcome.skipped;
 
-    // The debrid backend has no server-side watch state (markWatched is a
-    // no-op), so the only durable record is a local OfflineWatchProgress row,
-    // which sync rules and download cleanup read. Route through the offline
-    // queue so manual marks persist locally too.
+    // The debrid (Stremio) backend now writes watch state to the account
+    // datastore, so push the mark through; the local OfflineWatchProgress
+    // row stays as the durable record sync rules and download cleanup read
+    // (its replay also retries the server write if this attempt failed).
     if (client.backend == MediaBackend.debrid) {
+      if (watched) {
+        await client.markWatched(item);
+      } else {
+        await client.markUnwatched(item);
+      }
       final offlineWatch = context.read<OfflineWatchProvider>();
       if (watched) {
         await offlineWatch.markAsWatched(serverId: ServerId(serverId), itemId: item.id);
       } else {
         await offlineWatch.markAsUnwatched(serverId: ServerId(serverId), itemId: item.id);
       }
-      return WatchMarkOutcome.queuedOffline;
+      return WatchMarkOutcome.marked;
     }
 
     if (watched) {
