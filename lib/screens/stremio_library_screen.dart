@@ -28,8 +28,15 @@ import '../widgets/optimized_media_image.dart';
 /// progress from `timeOffset`/`duration`. Tapping an item opens the normal
 /// detail screen through the debrid backend, so library browsing ends in
 /// playback the same way every other screen does.
+/// Which Stremio surface the screen renders: the account's full library, or
+/// only items with an unfinished playback position (Continue Watching).
+enum StremioViewMode { library, continueWatching }
+
 class StremioLibraryScreen extends StatefulWidget {
-  const StremioLibraryScreen({super.key});
+  /// Whether to show the full library or just in-progress items.
+  final StremioViewMode mode;
+
+  const StremioLibraryScreen({super.key, this.mode = StremioViewMode.library});
 
   @override
   State<StremioLibraryScreen> createState() => _StremioLibraryScreenState();
@@ -78,14 +85,22 @@ class _StremioLibraryScreenState extends State<StremioLibraryScreen> {
         return;
       }
       final items = await _api.getAllItems(authKey);
-      items.sort((a, b) {
-        final am = '${a['_mtime'] ?? ''}';
-        final bm = '${b['_mtime'] ?? ''}';
-        return bm.compareTo(am);
-      });
+      var visible = items.where((i) => i['removed'] != true).toList();
+      if (widget.mode == StremioViewMode.continueWatching) {
+        visible = visible.where(_inProgress).toList();
+        // Most recently watched first — the order Stremio's own Continue
+        // Watching uses.
+        visible.sort((a, b) => _lastWatched(b).compareTo(_lastWatched(a)));
+      } else {
+        visible.sort((a, b) {
+          final am = '${a['_mtime'] ?? ''}';
+          final bm = '${b['_mtime'] ?? ''}';
+          return bm.compareTo(am);
+        });
+      }
       if (!mounted) return;
       setState(() {
-        _items = items.where((i) => i['removed'] != true).toList();
+        _items = visible;
         _loading = false;
       });
     } catch (e) {
@@ -96,6 +111,40 @@ class _StremioLibraryScreenState extends State<StremioLibraryScreen> {
         _error = 'Could not load your Stremio library: $e';
       });
     }
+  }
+
+  Map<String, dynamic> _stateOf(Map<String, dynamic> item) {
+    final state = item['state'];
+    return state is Map<String, dynamic> ? state : const <String, dynamic>{};
+  }
+
+  int _asInt(Object? value) => int.tryParse('${value ?? 0}') ?? 0;
+
+  /// True when the item has a real, unfinished playback position. Untouched
+  /// items default to a zeroed state and finished ones sit at (nearly) the
+  /// full duration, so both drop out.
+  bool _inProgress(Map<String, dynamic> item) {
+    final state = _stateOf(item);
+    final duration = _asInt(state['duration']);
+    final offset = _asInt(state['timeOffset']);
+    return duration > 0 && offset > 0 && offset < duration * 0.97;
+  }
+
+  /// ISO-8601 `lastWatched` timestamp for recency sorting; empty when absent.
+  String _lastWatched(Map<String, dynamic> item) {
+    final value = _stateOf(item)['lastWatched'];
+    final text = value == null ? '' : '$value';
+    return text == 'null' ? '' : text;
+  }
+
+  /// Poster-overlay progress bar fraction, Continue Watching mode only.
+  double? _progressFraction(Map<String, dynamic> item) {
+    if (widget.mode != StremioViewMode.continueWatching) return null;
+    final state = _stateOf(item);
+    final duration = _asInt(state['duration']);
+    final offset = _asInt(state['timeOffset']);
+    if (duration <= 0 || offset <= 0) return null;
+    return (offset / duration).clamp(0.0, 1.0);
   }
 
   MediaServerClient? _debridClient() {
@@ -134,7 +183,7 @@ class _StremioLibraryScreenState extends State<StremioLibraryScreen> {
   }
 
   /// Watched/progress summary rendered under a tile's poster.
-  (String, bool) _status(Map<String, dynamic> item) {
+  (String, bool) _status(Map<String, dynamic> item, {bool preferProgress = false}) {
     final state = item['state'];
     final map = state is Map<String, dynamic> ? state : const <String, dynamic>{};
     final type = '${item['type']}';
@@ -151,6 +200,12 @@ class _StremioLibraryScreenState extends State<StremioLibraryScreen> {
       watched = true;
     }
 
+    // Continue Watching leads with how far along the item is, even when the
+    // show already has watched episodes recorded.
+    if (preferProgress && duration > 0 && offset > 0 && offset < duration) {
+      final percent = (100 * offset / duration).clamp(0, 100).round();
+      return ('$percent%', false);
+    }
     if (watched) return ('Watched', true);
     if (duration > 0 && offset > 0) {
       final percent = (100 * offset / duration).clamp(0, 100).round();
@@ -171,7 +226,9 @@ class _StremioLibraryScreenState extends State<StremioLibraryScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return FocusedScrollScaffold(
-      title: const Text('Stremio Library'),
+      title: Text(
+        widget.mode == StremioViewMode.continueWatching ? 'Stremio Continue Watching' : 'Stremio Library',
+      ),
       slivers: [
         if (_loading)
           const SliverFillRemaining(hasScrollBody: false, child: Center(child: LoadingIndicatorBox()))
@@ -193,9 +250,15 @@ class _StremioLibraryScreenState extends State<StremioLibraryScreen> {
             ),
           )
         else if (_items.isEmpty)
-          const SliverFillRemaining(
+          SliverFillRemaining(
             hasScrollBody: false,
-            child: Center(child: Text('Your Stremio library is empty.')),
+            child: Center(
+              child: Text(
+                widget.mode == StremioViewMode.continueWatching
+                    ? 'Nothing in progress on Stremio right now.'
+                    : 'Your Stremio library is empty.',
+              ),
+            ),
           )
         else
           SliverPadding(
@@ -211,7 +274,11 @@ class _StremioLibraryScreenState extends State<StremioLibraryScreen> {
                 final item = _items[index];
                 final title = '${item['name'] ?? item['_id'] ?? ''}';
                 final poster = item['poster'];
-                final (status, isWatched) = _status(item);
+                final (status, isWatched) = _status(
+                  item,
+                  preferProgress: widget.mode == StremioViewMode.continueWatching,
+                );
+                final fraction = _progressFraction(item);
                 return InkWell(
                   onTap: () => unawaited(_open(item)),
                   borderRadius: BorderRadius.circular(8),
@@ -243,6 +310,18 @@ class _StremioLibraryScreenState extends State<StremioLibraryScreen> {
                                       size: 18,
                                       color: theme.colorScheme.primary,
                                     ),
+                                  ),
+                                ),
+                              if (fraction != null)
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  child: LinearProgressIndicator(
+                                    value: fraction,
+                                    minHeight: 4,
+                                    backgroundColor: Colors.black26,
+                                    color: theme.colorScheme.primary,
                                   ),
                                 ),
                             ],
