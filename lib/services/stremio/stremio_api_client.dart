@@ -4,6 +4,12 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 /// Errors raised while talking to Stremio's account APIs.
+/// Library ids for the two account-backed pseudo-libraries the debrid client
+/// exposes in the main library menu. Content is served from the account's
+/// `libraryItem` datastore by StremioDebridClient.fetchLibraryPagedContent.
+const String stremioLibraryId = 'stremio-library';
+const String stremioContinueId = 'stremio-continue';
+
 class StremioApiException implements Exception {
   StremioApiException(this.message, {this.code});
 

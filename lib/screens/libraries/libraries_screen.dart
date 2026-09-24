@@ -31,7 +31,7 @@ import '../../services/storage_service.dart';
 import '../../mixins/refreshable.dart';
 import '../../mixins/item_updatable.dart';
 import '../../i18n/strings.g.dart';
-import '../stremio_library_screen.dart';
+import '../../services/stremio/stremio_api_client.dart';
 import 'state_messages.dart';
 import 'tabs/library_browse_tab.dart';
 import 'tabs/library_recommended_tab.dart';
@@ -176,18 +176,9 @@ class _LibrariesScreenState extends State<LibrariesScreen>
       }
     }
 
-    // Fallback to the first *real* library if the saved key is not found.
-    // The Stremio pseudo-libraries open a pushed screen, so they must never
-    // be auto-selected on launch.
-    if (libraryGlobalKeyToLoad == null) {
-      libraryGlobalKeyToLoad = visibleLibraries
-          .where(
-            (lib) =>
-                lib.globalKey != LibrariesProvider.stremioLibraryKey &&
-                lib.globalKey != LibrariesProvider.stremioContinueKey,
-          )
-          .firstOrNull
-          ?.globalKey;
+    // Fallback to first visible library if saved key not found
+    if (libraryGlobalKeyToLoad == null && visibleLibraries.isNotEmpty) {
+      libraryGlobalKeyToLoad = visibleLibraries.first.globalKey;
     }
 
     if (libraryGlobalKeyToLoad != null && mounted) {
@@ -459,20 +450,6 @@ class _LibrariesScreenState extends State<LibrariesScreen>
   }
 
   Future<void> _loadLibraryContent(String libraryGlobalKey) async {
-    // Stremio pseudo-libraries open as their own pushed screens; they have
-    // no tabbed browse representation to load into.
-    if (libraryGlobalKey == LibrariesProvider.stremioLibraryKey ||
-        libraryGlobalKey == LibrariesProvider.stremioContinueKey) {
-      if (!mounted) return;
-      final mode = libraryGlobalKey == LibrariesProvider.stremioContinueKey
-          ? StremioViewMode.continueWatching
-          : StremioViewMode.library;
-      await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => StremioLibraryScreen(mode: mode)),
-      );
-      return;
-    }
-
     final librariesProvider = context.read<LibrariesProvider>();
     final allLibraries = librariesProvider.libraries;
 
@@ -669,8 +646,8 @@ class _LibrariesScreenState extends State<LibrariesScreen>
     return AppMenuItem<String>(
       value: library.globalKey,
       icon: switch (library.globalKey) {
-        LibrariesProvider.stremioLibraryKey => Symbols.live_tv_rounded,
-        LibrariesProvider.stremioContinueKey => Symbols.play_circle_rounded,
+        stremioLibraryId => Symbols.live_tv_rounded,
+        stremioContinueId => Symbols.play_circle_rounded,
         _ => ContentTypeHelper.getLibraryIcon(library.kind.id),
       },
       label: library.title,
@@ -722,17 +699,8 @@ class _LibrariesScreenState extends State<LibrariesScreen>
     MediaLibrary? selectedLibrary, {
     required bool groupByServer,
   }) {
-    // No selection at all, or visible list is empty AND we're not browsing a
-    // hidden library. A Stremio-only install never gains a selection (its
-    // pseudo-libraries open pushed screens), so it still needs the dropdown.
-    final stremioOnly = visibleLibraries.isNotEmpty &&
-        visibleLibraries.every(
-          (lib) =>
-              lib.globalKey == LibrariesProvider.stremioLibraryKey ||
-              lib.globalKey == LibrariesProvider.stremioContinueKey,
-        );
-    if ((_selectedLibraryGlobalKey == null && !stremioOnly) ||
-        (visibleLibraries.isEmpty && selectedLibrary == null)) {
+    // No selection at all, or visible list is empty AND we're not browsing a hidden library
+    if (_selectedLibraryGlobalKey == null || (visibleLibraries.isEmpty && selectedLibrary == null)) {
       return Text(t.libraries.title);
     }
 

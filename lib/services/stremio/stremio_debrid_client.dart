@@ -28,8 +28,11 @@ import '../../utils/app_logger.dart';
 import '../../utils/external_ids.dart';
 import '../../utils/media_server_http_client.dart' show AbortController;
 import '../api_cache.dart';
+import '../credential_vault.dart';
 import '../playback_initialization_types.dart';
 import '../scrub_preview_source.dart';
+import '../settings_service.dart';
+import 'stremio_api_client.dart';
 import 'debrid_api_cache.dart';
 import 'real_debrid_client.dart';
 import 'stremio_addon_client.dart';
@@ -106,6 +109,17 @@ class StremioDebridClient extends MediaServerClient {
   /// Merged catalog list: stream addon catalogs first, then Cinemeta's
   /// browsable `top` catalogs. Populated lazily on first catalog use.
   List<_StremioCatalog>? _catalogs;
+
+  /// Account datastore client backing the Stremio Library / Continue
+  /// Watching pseudo-libraries. Its own instance so the per-show
+  /// episode-id cache survives for the life of this client.
+  final StremioApiClient _accountApi = StremioApiClient();
+
+  /// Short-lived cache of the account's full `libraryItem` pull: the browse
+  /// tab fetches one page at a time and every uncached pull downloads the
+  /// whole datastore, so pages within a burst must not each re-fetch it.
+  List<Map<String, dynamic>>? _accountItemsCache;
+  DateTime? _accountItemsCacheAt;
 
   /// The stream addon's manifest, parsed once for its display name, catalogs,
   /// and meta capabilities. Null = not loaded yet; an empty map marks a
@@ -351,7 +365,28 @@ class StremioDebridClient extends MediaServerClient {
   @override
   Future<List<MediaLibrary>> fetchLibraries() async {
     final catalogs = await _loadCatalogs();
+    final showAccountLibraries = await _stremioAccountConnected();
     return [
+      // Account-backed pseudo-libraries: same server id as the catalogs so
+      // they group under the Stremio section of the library menu.
+      if (showAccountLibraries) ...[
+        MediaLibrary(
+          id: stremioLibraryId,
+          backend: MediaBackend.debrid,
+          title: 'Stremio Library',
+          kind: MediaKind.movie,
+          serverId: serverId.toString(),
+          serverName: 'Stremio',
+        ),
+        MediaLibrary(
+          id: stremioContinueId,
+          backend: MediaBackend.debrid,
+          title: 'Stremio Continue Watching',
+          kind: MediaKind.movie,
+          serverId: serverId.toString(),
+          serverName: 'Stremio',
+        ),
+      ],
       for (final catalog in catalogs)
         MediaLibrary(
           id: '${catalog.type}|${catalog.id}',
@@ -391,6 +426,11 @@ class StremioDebridClient extends MediaServerClient {
     MediaKind? libraryKind,
     AbortController? abort,
   }) async {
+    // Account pseudo-libraries are not `type|catalog` ids; serve them from
+    // the datastore before the catalog path parses the id.
+    if (libraryId == stremioLibraryId || libraryId == stremioContinueId) {
+      return _fetchAccountLibrary(libraryId, query);
+    }
     final parts = libraryId.split('|');
     if (parts.length != 2) {
       throw MediaServerHttpException(type: MediaServerHttpErrorType.unknown, message: 'Malformed debrid library id: $libraryId');
@@ -413,6 +453,137 @@ class StremioDebridClient extends MediaServerClient {
     } catch (e) {
       throw StremioAddonException('Unexpected error loading catalog (${e.runtimeType})');
     }
+  }
+
+  /// Whether the linked Stremio account (the one sync writes through) is
+  /// connected. Gates the account pseudo-libraries in [fetchLibraries].
+  Future<bool> _stremioAccountConnected() async {
+    try {
+      final settings = await SettingsService.getInstance();
+      return settings.read(SettingsService.stremioAuthKey) != null;
+    } catch (e) {
+      appLogger.w('Stremio: account connection check failed', error: e);
+      return false;
+    }
+  }
+
+  /// The account's full `libraryItem` datastore, cached briefly: the browse
+  /// tab pages through it and every uncached pull downloads everything.
+  Future<List<Map<String, dynamic>>> _accountItems(String authKey) async {
+    final cached = _accountItemsCache;
+    final cachedAt = _accountItemsCacheAt;
+    if (cached != null && cachedAt != null && DateTime.now().difference(cachedAt) < const Duration(seconds: 60)) {
+      return cached;
+    }
+    final items = await _accountApi.getAllItems(authKey);
+    _accountItemsCache = items;
+    _accountItemsCacheAt = DateTime.now();
+    return items;
+  }
+
+  /// Serves Stremio Library (everything, newest added first) and Continue
+  /// Watching (unfinished positions only, most recently watched first) from
+  /// the account datastore. The browse tab's sort chip is empty for this
+  /// backend (fetchSortOptions returns []), so only the default orders ever
+  /// apply; kind flags are ignored because both libraries hold mixed movies
+  /// and series.
+  Future<LibraryPage<MediaItem>> _fetchAccountLibrary(String libraryId, LibraryQuery query) async {
+    final settings = await SettingsService.getInstance();
+    final protected = settings.read(SettingsService.stremioAuthKey);
+    if (protected == null) {
+      throw MediaServerHttpException(
+        type: MediaServerHttpErrorType.unknown,
+        message: 'Stremio account not connected. Connect it in Settings > Services > Stremio.',
+      );
+    }
+    final authKey = await CredentialVault.reveal(protected);
+    if (authKey == null) {
+      throw MediaServerHttpException(
+        type: MediaServerHttpErrorType.unknown,
+        message: 'Stored Stremio credentials could not be read. Reconnect the account in Settings.',
+      );
+    }
+
+    var items = (await _accountItems(authKey)).where((i) => i['removed'] != true).toList();
+    if (libraryId == stremioContinueId) {
+      items = items.where(_hasUnfinishedProgress).toList();
+      items.sort((a, b) => _stremioLastWatched(b).compareTo(_stremioLastWatched(a)));
+    } else {
+      items.sort((a, b) => '${b['_mtime'] ?? ''}'.compareTo('${a['_mtime'] ?? ''}'));
+    }
+
+    final search = query.search?.trim().toLowerCase();
+    if (search != null && search.isNotEmpty) {
+      items = items.where((i) => '${i['name'] ?? i['_id'] ?? ''}'.toLowerCase().contains(search)).toList();
+    }
+
+    final mapped = await Future.wait(items.map(_mapAccountItem));
+    final total = mapped.length;
+    final start = query.offset.clamp(0, total).toInt();
+    final end = (start + query.limit).clamp(start, total).toInt();
+    return LibraryPage(items: mapped.sublist(start, end), totalCount: total, offset: start);
+  }
+
+  /// True when the datastore state carries a started-but-unfinished position.
+  static bool _hasUnfinishedProgress(Map<String, dynamic> item) {
+    final state = item['state'];
+    final map = state is Map<String, dynamic> ? state : const <String, dynamic>{};
+    final duration = int.tryParse('${map['duration'] ?? 0}') ?? 0;
+    final offset = int.tryParse('${map['timeOffset'] ?? 0}') ?? 0;
+    return duration > 0 && offset > 0 && offset < duration * 0.97;
+  }
+
+  /// ISO-8601 `lastWatched` timestamp; empty when absent (sort key only).
+  static String _stremioLastWatched(Map<String, dynamic> item) {
+    final state = item['state'];
+    final map = state is Map<String, dynamic> ? state : const <String, dynamic>{};
+    final value = map['lastWatched'];
+    final text = value == null ? '' : '$value';
+    return text == 'null' ? '' : text;
+  }
+
+  /// Datastore item -> grid MediaItem. Progress and watched counts flow into
+  /// MediaCard's progress bar and WatchedIndicator; series counts decode the
+  /// bitfield against Cinemeta (episode ids cached on [_accountApi]).
+  Future<MediaItem> _mapAccountItem(Map<String, dynamic> item) async {
+    final type = '${item['type']}';
+    final id = '${item['_id']}';
+    final state = item['state'];
+    final map = state is Map<String, dynamic> ? state : const <String, dynamic>{};
+    final duration = int.tryParse('${map['duration'] ?? 0}') ?? 0;
+    final offset = int.tryParse('${map['timeOffset'] ?? 0}') ?? 0;
+    final timesWatched = int.tryParse('${map['timesWatched'] ?? 0}') ?? 0;
+    final lastViewedAt = DateTime.tryParse('${map['lastWatched'] ?? ''}')?.millisecondsSinceEpoch;
+    final addedAt = DateTime.tryParse('${item['_ctime'] ?? ''}')?.millisecondsSinceEpoch;
+    final poster = item['poster'];
+    final watched = map['watched'];
+
+    int? viewCount = timesWatched > 0 ? timesWatched : null;
+    if (type == 'series' && watched is String && watched.isNotEmpty) {
+      try {
+        final videoIds = await _accountApi.seriesVideoIds(id);
+        viewCount = decodeWatchedBitfield(watched, videoIds).length;
+      } catch (e) {
+        appLogger.w('Stremio: watched-bitfield decode failed for $id', error: e);
+        viewCount = null;
+      }
+    }
+
+    return MediaItem(
+      id: StremioItemId(type, id).toString(),
+      backend: MediaBackend.debrid,
+      kind: type == 'series' ? MediaKind.show : MediaKind.movie,
+      title: '${item['name'] ?? id}',
+      thumbPath: poster is String && poster.isNotEmpty ? poster : null,
+      durationMs: duration > 0 ? duration : null,
+      viewOffsetMs: offset > 0 ? offset : null,
+      viewCount: viewCount,
+      lastViewedAt: lastViewedAt,
+      addedAt: addedAt,
+      serverId: serverId.toString(),
+      serverName: serverName,
+      raw: {'stremioType': type, 'stremioId': id, 'addonUrl': _streamAddon.addonUrl},
+    );
   }
 
   @override

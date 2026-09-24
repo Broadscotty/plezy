@@ -1,11 +1,8 @@
 import 'package:flutter/foundation.dart';
 
-import '../media/media_backend.dart';
-import '../media/media_kind.dart';
 import '../media/media_library.dart';
 import '../mixins/disposable_change_notifier_mixin.dart';
 import '../services/data_aggregation_service.dart';
-import '../services/settings_service.dart';
 import '../services/storage_service.dart';
 import '../utils/app_logger.dart';
 import '../utils/coalesced_load_coordinator.dart';
@@ -35,45 +32,6 @@ class LibrariesProvider extends ChangeNotifier with DisposableChangeNotifierMixi
   }
 
   static bool _neverBinding() => false;
-
-  /// Keys for the Stremio pseudo-libraries surfaced in the library dropdown
-  /// and side navigation. Their content opens as pushed
-  /// `StremioLibraryScreen`s rather than loading into the tabbed browser.
-  static const String stremioLibraryKey = 'stremio-library';
-  static const String stremioContinueKey = 'stremio-continue';
-
-  static const List<MediaLibrary> _stremioLibraries = [
-    MediaLibrary(
-      id: stremioLibraryKey,
-      backend: MediaBackend.debrid,
-      title: 'Stremio Library',
-      kind: MediaKind.movie,
-    ),
-    MediaLibrary(
-      id: stremioContinueKey,
-      backend: MediaBackend.debrid,
-      title: 'Stremio Continue Watching',
-      kind: MediaKind.movie,
-    ),
-  ];
-
-  /// Appends the Stremio pseudo-libraries while a Stremio account is
-  /// connected. Idempotent, so every load path (full, delta, reorder) can
-  /// apply it blindly: lists that already carry the entries come back
-  /// unchanged.
-  Future<List<MediaLibrary>> _withStremioLibraries(List<MediaLibrary> libraries) async {
-    var connected = false;
-    try {
-      final settings = await SettingsService.getInstance();
-      connected = settings.read(SettingsService.stremioAuthKey) != null;
-    } catch (e) {
-      appLogger.w('LibrariesProvider: Stremio connection check failed', error: e);
-    }
-    if (!connected) return libraries;
-    final present = {for (final lib in libraries) lib.globalKey};
-    final extra = [for (final lib in _stremioLibraries) if (!present.contains(lib.globalKey)) lib];
-    return extra.isEmpty ? libraries : [...libraries, ...extra];
-  }
 
   final MultiServerProvider? _multiServer;
 
@@ -187,7 +145,7 @@ class LibrariesProvider extends ChangeNotifier with DisposableChangeNotifierMixi
         if (isDisposed) return;
         _storageService = storage;
       }
-      _libraries = _applyLibraryOrder(await _withStremioLibraries(merged), storage.getLibraryOrder());
+      _libraries = _applyLibraryOrder(merged, storage.getLibraryOrder());
       // Union *succeeded* ids only, so a server whose fetch failed is retried
       // on the next status emission instead of being cached as loaded.
       _loadedServerIds = {..._loadedServerIds, ...result.succeededServerIds};
@@ -258,7 +216,7 @@ class LibrariesProvider extends ChangeNotifier with DisposableChangeNotifierMixi
         _storageService = storage;
       }
       final savedOrder = storage.getLibraryOrder();
-      final orderedLibraries = _applyLibraryOrder(await _withStremioLibraries(result.libraries), savedOrder);
+      final orderedLibraries = _applyLibraryOrder(result.libraries, savedOrder);
 
       _libraries = orderedLibraries;
       // Track which servers actually responded so [syncToOnlineServers] can tell
@@ -300,9 +258,7 @@ class LibrariesProvider extends ChangeNotifier with DisposableChangeNotifierMixi
   /// Update the library order and persist it.
   Future<void> updateLibraryOrder(List<MediaLibrary> orderedLibraries) async {
     if (isDisposed) return;
-    final withStremio = await _withStremioLibraries(orderedLibraries);
-    if (isDisposed) return;
-    _libraries = List.from(withStremio);
+    _libraries = List.from(orderedLibraries);
     safeNotifyListeners();
 
     // Save the new order
@@ -313,7 +269,7 @@ class LibrariesProvider extends ChangeNotifier with DisposableChangeNotifierMixi
       _storageService = storage;
     }
     if (isDisposed) return;
-    final libraryKeys = withStremio.map((lib) => lib.globalKey).toList();
+    final libraryKeys = orderedLibraries.map((lib) => lib.globalKey).toList();
     await storage.saveLibraryOrder(libraryKeys);
 
     if (isDisposed) return;
