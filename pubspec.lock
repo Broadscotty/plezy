@@ -97,9 +97,9 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "021e2075260e324b7440a5c81b57bf0242d35020"
-      resolved-ref: "021e2075260e324b7440a5c81b57bf0242d35020"
-      url: "https://github.com/edde746/background_downloader"
+      ref: "f581cf05f46c2c3212fa5dfa51bb4bafddb17943"
+      resolved-ref: "f581cf05f46c2c3212fa5dfa51bb4bafddb17943"
+      url: "https://github.com/Broadscotty/plezy"
     source: git
     version: "9.5.5"
   boolean_selector:
