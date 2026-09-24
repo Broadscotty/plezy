@@ -269,7 +269,7 @@ class _StremioSettingsScreenState extends State<StremioSettingsScreen> {
             ]),
           ),
         ),
-      ),
+      ],
     );
   }
 }
