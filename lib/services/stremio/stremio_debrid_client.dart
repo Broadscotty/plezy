@@ -1347,25 +1347,37 @@ class StremioDebridClient extends MediaServerClient {
   /// addon streams are used as-is; torrent-backed streams are added to
   /// Real-Debrid and resolved to a direct link. Picks the first stream that
   /// resolves successfully.
+  /// Why the last [_resolveDirectUrl] returned null. Carried into the play
+  /// error and the download failure so the phone itself reports the actual
+  /// cause (addon returned nothing / every torrent failed at Real-Debrid /
+  /// metadata lost its Stremio id) instead of a bare "no resolvable stream".
+  String? _lastResolveDetail;
+
   Future<String?> _resolveDirectUrl(MediaItem item, {int mediaIndex = 0}) async {
+    _lastResolveDetail = null;
     final stremioType = item.raw?['stremioType'] as String?;
     final stremioId = item.raw?['stremioId'] as String?;
-    if (stremioType == null || stremioId == null) return null;
+    if (stremioType == null || stremioId == null) {
+      _lastResolveDetail = 'item metadata lost its Stremio id';
+      return null;
+    }
     final streams = await _streamAddon.fetchStreams(stremioType, stremioId);
-    if (streams.isEmpty) return null;
+    final host = Uri.parse(_streamAddon.addonUrl).host;
+    if (streams.isEmpty) {
+      final why = _streamAddon.lastStreamError;
+      _lastResolveDetail = 'addon $host returned no streams${why == null ? '' : ' ($why)'}';
+      return null;
+    }
+
+    final direct = streams.where((s) => s.isDirectUrl).length;
+    final torrent = streams.where((s) => s.isTorrent).length;
+    String? failure;
 
     // mediaIndex comes from the version picker (populated from these same
     // streams in fetchItem) when the user explicitly chose one -- honor
     // that choice rather than silently falling back to a different stream.
-    if (mediaIndex > 0 && mediaIndex < streams.length) {
-      final chosen = streams[mediaIndex];
-      if (chosen.isDirectUrl) return chosen.url;
-      final magnet = chosen.magnetUri;
-      if (magnet != null) return _realDebrid.resolveMagnetToDirectLink(magnet);
-      return null;
-    }
-
-    for (final stream in streams) {
+    final candidates = (mediaIndex > 0 && mediaIndex < streams.length) ? <StremioStream>[streams[mediaIndex]] : streams;
+    for (final stream in candidates) {
       if (stream.isDirectUrl) return stream.url;
       final magnet = stream.magnetUri;
       if (magnet == null) continue;
@@ -1373,8 +1385,13 @@ class StremioDebridClient extends MediaServerClient {
         return await _realDebrid.resolveMagnetToDirectLink(magnet);
       } on RealDebridException catch (e) {
         appLogger.w('Real-Debrid resolution failed for a candidate stream, trying next', error: e);
+        failure = '$e';
       }
     }
+    _lastResolveDetail =
+        '$direct direct / $torrent torrent of ${streams.length} sources from $host; '
+        'RD token ${_realDebrid.apiToken.isEmpty ? 'MISSING' : 'present'}'
+        '${failure == null ? '; no source had a direct link or torrent hash' : '; $failure'}';
     return null;
   }
 
@@ -1382,7 +1399,10 @@ class StremioDebridClient extends MediaServerClient {
   Future<PlaybackInitializationResult> getPlaybackInitialization(PlaybackInitializationOptions options) async {
     final videoUrl = await _resolveDirectUrl(options.metadata, mediaIndex: options.selectedMediaIndex);
     if (videoUrl == null) {
-      throw const PlaybackException('No resolvable stream found for this item', reason: PlaybackFailureReason.noPlayableSource);
+      throw PlaybackException(
+        'No resolvable stream found for this item (${_lastResolveDetail ?? 'no detail captured'})',
+        reason: PlaybackFailureReason.noPlayableSource,
+      );
     }
     return PlaybackInitializationResult(availableVersions: const [], videoUrl: videoUrl, isTranscoding: false);
   }
@@ -1393,6 +1413,12 @@ class StremioDebridClient extends MediaServerClient {
   @override
   Future<DownloadResolution> resolveDownload(MediaItem item, {int mediaIndex = 0, String? mediaSourceId}) async {
     final videoUrl = await _resolveDirectUrl(item, mediaIndex: mediaIndex);
+    if (videoUrl == null) {
+      // Throwing (instead of returning a null videoUrl) carries the reason
+      // into the download queue's error text: the phone then reports the
+      // actual cause rather than a generic "could not get video URL".
+      throw Exception('Stremio download could not resolve a URL (${_lastResolveDetail ?? 'no detail captured'})');
+    }
     return DownloadResolution(videoUrl: videoUrl);
   }
 

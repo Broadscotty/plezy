@@ -227,16 +227,29 @@ class StremioAddonClient {
     return StremioMetaPreview.fromJson(meta);
   }
 
+  /// Last stream-fetch failure, redacted for display (host + endpoint only,
+  /// never the config path carrying a debrid token). Null when the most
+  /// recent fetch succeeded. Survives the swallow-and-return-empty behaviour
+  /// below so callers can explain WHY a stream list came back empty instead
+  /// of reporting a bare "no streams".
+  String? lastStreamError;
+
   /// Candidate streams for a playable item. For series episodes, [id] is
   /// `{imdbId}:{season}:{episode}` per protocol convention.
   Future<List<StremioStream>> fetchStreams(String type, String id) async {
     try {
       final json = await _getJson('/stream/${Uri.encodeComponent(type)}/${Uri.encodeComponent(id)}.json');
       final streams = json['streams'] as List?;
+      lastStreamError = null;
       if (streams == null) return const [];
       return streams.whereType<Map<String, dynamic>>().map(StremioStream.fromJson).toList();
     } on StremioAddonException catch (e) {
       appLogger.w('Stremio stream fetch failed for $type/$id', error: e);
+      lastStreamError = e.message;
+      return const [];
+    } catch (e) {
+      appLogger.w('Stremio stream fetch threw for $type/$id', error: e);
+      lastStreamError = 'unexpected ${e.runtimeType}';
       return const [];
     }
   }
