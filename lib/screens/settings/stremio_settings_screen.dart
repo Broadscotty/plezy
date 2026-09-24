@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -8,6 +10,7 @@ import '../../services/settings_service.dart';
 import '../../services/stremio/stremio_api_client.dart';
 import '../../services/stremio/stremio_sync_service.dart';
 import '../../utils/app_logger.dart';
+import '../stremio_library_screen.dart';
 import '../../widgets/app_icon.dart';
 import '../../widgets/focused_scroll_scaffold.dart';
 import '../../widgets/focusable_list_tile.dart';
@@ -240,9 +243,108 @@ class _StremioSettingsScreenState extends State<StremioSettingsScreen> {
                     child: OutlinedButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect')),
                   ),
                 ),
+              if (_connected) ...[
+                SettingsGroup(
+                  title: 'My library',
+                  children: [
+                    FocusableListTile(
+                      leading: const AppIcon(Symbols.video_library_rounded),
+                      title: const Text('Stremio Library'),
+                      subtitle: const Text('Everything in your Stremio account, with watched status'),
+                      trailing: const AppIcon(Symbols.chevron_right_rounded),
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StremioLibraryScreen())),
+                    ),
+                  ],
+                ),
+                SettingsGroup(
+                  title: 'Sync status',
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: _SyncStatusPanel(sync: StremioSyncService.instance),
+                    ),
+                  ],
+                ),
+              ],
             ]),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Live sync diagnostics. There is no adb on this device, so the settings
+/// screen is the only place a silent push failure can surface — this panel
+/// polls the service and shows attempt/success times, the last target, and
+/// the last error or skip reason.
+class _SyncStatusPanel extends StatefulWidget {
+  const _SyncStatusPanel({required this.sync});
+
+  final StremioSyncService sync;
+
+  @override
+  State<_SyncStatusPanel> createState() => _SyncStatusPanelState();
+}
+
+class _SyncStatusPanelState extends State<_SyncStatusPanel> {
+  static const Duration _pollInterval = Duration(seconds: 2);
+
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(_pollInterval, (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  static String _fmt(DateTime? time) {
+    if (time == null) return 'never';
+    final local = time.toLocal();
+    final two = (int n) => n.toString().padLeft(2, '0');
+    final today = DateTime.now();
+    final sameDay = local.year == today.year && local.month == today.month && local.day == today.day;
+    final clock = '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
+    return sameDay ? clock : '${two(local.day)}/${two(local.month)} $clock';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final sync = widget.sync;
+    final lines = <(String, Color?)>[
+      ('Last attempt: ${_fmt(sync.lastAttemptAt)}', null),
+      ('Last success: ${_fmt(sync.lastSuccessAt)} (${sync.successCount} pushes)', null),
+      if (sync.lastTargetLabel != null) ('Playing: ${sync.lastTargetLabel}', null),
+      if (sync.lastError != null) ('Error: ${sync.lastError}', theme.colorScheme.error),
+      if (sync.lastSkipReason != null && sync.lastError == null)
+        ('Not syncing: ${sync.lastSkipReason}', theme.colorScheme.error),
+      if (sync.lastError == null &&
+          sync.lastSkipReason == null &&
+          sync.lastAttemptAt == null)
+        ('No playback attempted yet since app start', theme.hintColor),
+      if (sync.lastError == null && sync.lastSuccessAt != null)
+        ('Healthy — progress is reaching Stremio', Colors.green),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final (text, color) in lines)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Text(
+              text,
+              style: theme.textTheme.bodySmall?.copyWith(color: color),
+            ),
+          ),
       ],
     );
   }

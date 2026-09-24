@@ -40,6 +40,24 @@ class StremioSyncService {
   DateTime? _lastPushAt;
   bool _pushing = false;
 
+  // ---------------------------------------------------------------- status
+  // On-screen diagnostics. There is no adb on Scott's phone, so the settings
+  // screen is the only place a sync failure can ever be seen.
+
+  DateTime? _lastAttemptAt;
+  DateTime? _lastSuccessAt;
+  String? _lastError;
+  String? _lastTargetLabel;
+  String? _lastSkipReason;
+  int _successCount = 0;
+
+  DateTime? get lastAttemptAt => _lastAttemptAt;
+  DateTime? get lastSuccessAt => _lastSuccessAt;
+  String? get lastError => _lastError;
+  String? get lastTargetLabel => _lastTargetLabel;
+  String? get lastSkipReason => _lastSkipReason;
+  int get successCount => _successCount;
+
   /// Re-reads the enable pref and auth key on next use. Called by the
   /// settings screen after connect, disconnect, or toggle changes.
   void invalidateCachedAuth() {
@@ -82,15 +100,30 @@ class StremioSyncService {
     _clear();
   }
 
+  void _noteSkip(String reason) {
+    _lastSkipReason = reason;
+    appLogger.d('Stremio: skipping sync — $reason');
+  }
+
   Future<void> startPlayback(MediaItem metadata, MediaServerClient client, {bool isLive = false}) async {
     final revision = ++_revision;
     _clear();
     await _ensureInitialized();
-    if (!_canSync || isLive) return;
+    if (!_canSync) {
+      _noteSkip(!_enabled ? 'sync toggle is off' : 'not connected');
+      return;
+    }
+    if (isLive) {
+      _noteSkip('live stream');
+      return;
+    }
     if (revision != _revision) return;
 
     final isEpisode = metadata.kind == MediaKind.episode;
-    if (metadata.kind != MediaKind.movie && !isEpisode) return;
+    if (metadata.kind != MediaKind.movie && !isEpisode) {
+      _noteSkip('not a movie or episode (${metadata.kind.name})');
+      return;
+    }
 
     final resolver = TrackerIdResolver(client, needsFribb: () => false);
     String? imdb;
@@ -100,14 +133,14 @@ class StremioSyncService {
       final season = metadata.parentIndex;
       final number = metadata.index;
       if (season == null || number == null) {
-        appLogger.d('Stremio: skipping sync — no season/episode for ${metadata.id}');
+        _noteSkip('no season/episode for ${metadata.id}');
         return;
       }
       final showIds = await resolver.resolveShowForEpisode(metadata, includeAnimeProgress: false);
       if (revision != _revision) return;
       imdb = showIds?.external.imdb;
       if (imdb == null) {
-        appLogger.d('Stremio: skipping sync — no show IMDb id for ${metadata.id}');
+        _noteSkip('no show IMDb id for ${metadata.id}');
         return;
       }
       target = _StremioTarget(
@@ -122,7 +155,7 @@ class StremioSyncService {
       if (revision != _revision) return;
       imdb = ids?.external.imdb;
       if (imdb == null) {
-        appLogger.d('Stremio: skipping sync — no movie IMDb id for ${metadata.id}');
+        _noteSkip('no movie IMDb id for ${metadata.id}');
         return;
       }
       target = _StremioTarget(imdb: imdb, isEpisode: false, title: metadata.title ?? '');
@@ -132,6 +165,10 @@ class StremioSyncService {
     _positionMs = metadata.viewOffsetMs ?? 0;
     _durationMs = metadata.durationMs;
     _lastPushAt = null;
+    _lastSkipReason = null;
+    _lastTargetLabel = target.isEpisode
+        ? '${target.title} S${target.season}E${target.episode}'
+        : target.title;
     // Seed Continue Watching right away (throttled pushes keep it fresh).
     unawaited(_push());
   }
@@ -178,13 +215,20 @@ class StremioSyncService {
     if (!force && lastPushAt != null && now.difference(lastPushAt) < _pushThrottle) return;
 
     final durationMs = _durationMs;
-    if (durationMs == null || durationMs <= 0) return;
+    if (durationMs == null || durationMs <= 0) {
+      _noteSkip('no duration reported by the player yet');
+      return;
+    }
 
     _pushing = true;
+    _lastAttemptAt = DateTime.now();
     final revision = _revision;
     try {
       final authKey = await _revealAuthKey();
-      if (authKey == null) return;
+      if (authKey == null) {
+        _lastError = 'stored auth key could not be decrypted';
+        return;
+      }
       final positionMs = _positionMs.clamp(0, durationMs).toInt();
       final markWatched = positionMs / durationMs >= _watchedThreshold;
       final iso = now.toUtc().toIso8601String();
@@ -201,9 +245,14 @@ class StremioSyncService {
         nowIso: iso,
       );
       if (revision == _revision) _lastPushAt = DateTime.now();
+      _lastSuccessAt = DateTime.now();
+      _lastError = null;
+      _lastSkipReason = null;
+      ++_successCount;
       final percent = 100 * positionMs / durationMs;
       appLogger.d('Stremio: pushed progress ${target.imdb} @ ${percent.toStringAsFixed(1)}%');
     } catch (e) {
+      _lastError = e.toString();
       appLogger.d('Stremio: progress push failed', error: e);
     } finally {
       _pushing = false;

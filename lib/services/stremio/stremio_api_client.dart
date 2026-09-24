@@ -130,8 +130,28 @@ class StremioApiClient {
   // ------------------------------------------------------------ datastore
 
   /// Reads the given ids from the account's `libraryItem` collection.
-  Future<List<Map<String, dynamic>>> getItems(String authKey, List<String> ids) async {
-    final result = await _post('datastoreGet', {'authKey': authKey, 'collection': libraryCollection, 'ids': ids});
+  ///
+  /// `all` is always sent — both reference implementations (MDBridge
+  /// `get_items`, Scrob `datastore_get`) include it on every request, and
+  /// omitting it is how the first cut of this client silently failed.
+  Future<List<Map<String, dynamic>>> getItems(String authKey, List<String> ids) =>
+      _datastoreGet(authKey, ids: ids, all: false);
+
+  /// Reads the ENTIRE `libraryItem` collection (the Stremio library).
+  Future<List<Map<String, dynamic>>> getAllItems(String authKey) =>
+      _datastoreGet(authKey, ids: const [], all: true);
+
+  Future<List<Map<String, dynamic>>> _datastoreGet(
+    String authKey, {
+    required List<String> ids,
+    required bool all,
+  }) async {
+    final result = await _post('datastoreGet', {
+      'authKey': authKey,
+      'collection': libraryCollection,
+      'ids': ids,
+      'all': all,
+    });
     if (result is! List) return const [];
     return result.whereType<Map<String, dynamic>>().toList();
   }
