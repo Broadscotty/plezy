@@ -14,6 +14,7 @@ import '../utils/search_relevance.dart';
 import '../utils/media_server_http_client.dart';
 import 'local_playback_history.dart';
 import 'multi_server_manager.dart';
+import 'stremio/stremio_api_client.dart';
 
 typedef OnDeckAggregationResult = ({
   List<MediaItem> items,
@@ -106,8 +107,20 @@ class DataAggregationService {
       }
     });
     final results = await Future.wait(futures);
+    final merged = <MediaLibrary>[for (final list in results) ...list];
+    // The two Stremio account pseudo-libraries are gated on the one stored
+    // auth key, not on the connection, so EVERY debrid connection emits an
+    // identical copy. Keep the first so N connections don't yield N
+    // "Stremio Continue Watching" rows in the menu. Their content is read
+    // from the shared account datastore, so which copy survives is
+    // immaterial -- only that exactly one does.
+    final seenAccountLibraries = <String>{};
+    final deduped = merged.where((library) {
+      if (library.id != stremioLibraryId && library.id != stremioContinueId) return true;
+      return seenAccountLibraries.add(library.id);
+    }).toList();
     return (
-      libraries: [for (final list in results) ...list],
+      libraries: deduped,
       succeededServerIds: succeededServerIds,
       cancelledServerIds: cancelledServerIds,
     );
