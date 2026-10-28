@@ -57,6 +57,20 @@ void main() {
 
       expect(StremioDebridClient.hasUnfinishedPosition(item), isFalse);
     });
+
+    test('something paused months ago ages out', () {
+      final item = _datastoreItem(duration: 6000000, offset: 2400000, lastWatched: '2026-06-01T10:00:00.000Z');
+      final now = DateTime.utc(2026, 10, 28);
+
+      expect(StremioDebridClient.hasUnfinishedPosition(item, now: now), isFalse);
+    });
+
+    test('something paused a few days ago stays', () {
+      final item = _datastoreItem(duration: 6000000, offset: 2400000, lastWatched: '2026-10-25T10:00:00.000Z');
+      final now = DateTime.utc(2026, 10, 28);
+
+      expect(StremioDebridClient.hasUnfinishedPosition(item, now: now), isTrue);
+    });
   });
 
   group('StremioDebridClient.isParkedOnWatchedEpisode', () {

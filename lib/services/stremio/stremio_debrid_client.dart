@@ -579,10 +579,16 @@ class StremioDebridClient extends MediaServerClient {
   /// carries for a played-out item.
   static const double _finishedFraction = 0.97;
 
+  /// How long a paused item stays in Continue Watching. Its own clients
+  /// surface the last things you played; a session abandoned months ago is not
+  /// "continue watching" to anybody, so it ages out here too.
+  static const Duration continueWatchingMaxAge = Duration(days: 30);
+
   /// True when the datastore state carries a started-but-unfinished position:
-  /// a real duration, a real offset, not already at the credits, and a
-  /// lastWatched stamp proving it was actually played.
-  static bool hasUnfinishedPosition(Map<String, dynamic> item) {
+  /// a real duration, a real offset, not already at the credits, a lastWatched
+  /// stamp proving it was actually played, and that stamp being recent enough
+  /// to still count as "watching".
+  static bool hasUnfinishedPosition(Map<String, dynamic> item, {DateTime? now}) {
     final type = '${item['type']}';
     if (type != 'movie' && type != 'series') return false;
     final state = _stateOf(item) ?? const <String, dynamic>{};
@@ -593,7 +599,14 @@ class StremioDebridClient extends MediaServerClient {
     // No lastWatched means the row exists because something was added to the
     // library, not because it was played. Stremio's own clients don't list
     // those, so neither do we.
-    return _stremioLastWatched(item).isNotEmpty;
+    final stamp = _stremioLastWatched(item);
+    if (stamp.isEmpty) return false;
+    final lastWatched = DateTime.tryParse(stamp);
+    // An unreadable stamp is treated as "played, age unknown" rather than
+    // silently hiding a row on a datastore format change.
+    if (lastWatched == null) return true;
+    final reference = now ?? DateTime.now();
+    return reference.difference(lastWatched.toLocal()) <= continueWatchingMaxAge;
   }
 
   /// True when a series row is parked on an episode the account already
