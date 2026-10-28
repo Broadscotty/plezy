@@ -663,6 +663,7 @@ extension _VideoPlayerEpisodeNavigationMethods on VideoPlayerScreenState {
         _progressTracker = null;
         unawaited(DiscordRPCService.instance.stopPlayback());
         unawaited(TraktScrobbleService.instance.stopPlayback());
+        unawaited(StremioSyncService.instance.stopPlayback());
         unawaited(TrackerCoordinator.instance.stopPlayback());
         if (!isCurrentReload()) return _MediaReloadOutcome.superseded;
 

@@ -169,6 +169,13 @@ class DownloadManagerService {
   int _consecutiveQueueFailures = 0;
   static const _maxConsecutiveFailures = 3;
 
+  // Lifts the circuit breaker on its own. Without this the counter only clears
+  // on a successful enqueue, so three bad items anywhere in a session left
+  // every later download frozen at `queued` -- no progress, no error -- until
+  // the app was restarted.
+  Timer? _circuitBreakerResetTimer;
+  static const _circuitBreakerResetDelay = Duration(seconds: 30);
+
   static bool get platformDownloadsSupported => downloadsSupportedFor(tvosBuild: _tvosBuild);
 
   @visibleForTesting
@@ -1505,6 +1512,7 @@ class DownloadManagerService {
   }) async {
     if (_skipDownloadsUnsupported('queue download')) return;
     _resumeQueueAfterStorageFailure('new download');
+    _resetQueueCircuitBreaker('new download queued');
 
     final globalKey = metadata.globalKey;
 
@@ -1568,6 +1576,7 @@ class DownloadManagerService {
       while (!_queueBlockedByStorageFailure) {
         if (_consecutiveQueueFailures >= _maxConsecutiveFailures) {
           appLogger.w('Circuit breaker: $_consecutiveQueueFailures consecutive failures, pausing queue');
+          _scheduleCircuitBreakerReset();
           break;
         }
 
@@ -2123,7 +2132,34 @@ class DownloadManagerService {
     if (!_queueBlockedByStorageFailure) return;
     appLogger.i('Resuming download queue after storage failure: $operation');
     _queueBlockedByStorageFailure = false;
+    _resetQueueCircuitBreaker('storage recovered');
+  }
+
+  /// Lifts the queue circuit breaker after a cooldown and retries whatever is
+  /// still waiting, so a burst of failures stalls the queue for seconds rather
+  /// than for the rest of the app session.
+  void _scheduleCircuitBreakerReset() {
+    if (_disposed || _circuitBreakerResetTimer != null) return;
+    appLogger.i('Download queue paused after $_consecutiveQueueFailures failures; retrying in '
+        '${_circuitBreakerResetDelay.inSeconds}s');
+    _circuitBreakerResetTimer = Timer(_circuitBreakerResetDelay, () {
+      _circuitBreakerResetTimer = null;
+      if (_disposed) return;
+      appLogger.i('Download queue circuit breaker reset, resuming');
+      _consecutiveQueueFailures = 0;
+      final client = _fallbackClient;
+      if (client != null) unawaited(_processQueue(client));
+    });
+  }
+
+  /// A fresh, user-initiated download always earns an attempt: three bad items
+  /// earlier in the session must not leave it frozen at `queued` with no error.
+  void _resetQueueCircuitBreaker(String reason) {
+    if (_consecutiveQueueFailures == 0 && _circuitBreakerResetTimer == null) return;
+    appLogger.i('Resetting download queue circuit breaker ($reason)');
     _consecutiveQueueFailures = 0;
+    _circuitBreakerResetTimer?.cancel();
+    _circuitBreakerResetTimer = null;
   }
 
   Future<void> _handleStorageFullFailure(String globalKey, String taskId) async {
@@ -3617,6 +3653,8 @@ class DownloadManagerService {
       timer.cancel();
     }
     _autoRetryTimers.clear();
+    _circuitBreakerResetTimer?.cancel();
+    _circuitBreakerResetTimer = null;
     _pendingDownloadContext.clear();
     _completingKeys.clear();
     _pausingKeys.clear();

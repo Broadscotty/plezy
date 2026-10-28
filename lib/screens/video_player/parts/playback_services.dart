@@ -299,6 +299,7 @@ extension _VideoPlayerPlaybackServiceMethods on VideoPlayerScreenState {
         await Future.wait<void>([
           DiscordRPCService.instance.stopPlayback(),
           TraktScrobbleService.instance.stopPlayback(),
+          StremioSyncService.instance.stopPlayback(),
           TrackerCoordinator.instance.stopPlayback(),
         ]);
       } catch (e, st) {
@@ -358,13 +359,19 @@ extension _VideoPlayerPlaybackServiceMethods on VideoPlayerScreenState {
       );
     }
 
-    // Scrobblers — Discord RPC, Trakt, unified tracker. All accept the
-    // neutral [MediaServerClient]; null short-circuits cleanly.
+    // Scrobblers — Discord RPC, Trakt, unified tracker. These need a server
+    // client to resolve IDs; null short-circuits them.
     if (mediaClient != null) {
       unawaited(DiscordRPCService.instance.startPlayback(metadata, mediaClient));
       unawaited(TraktScrobbleService.instance.startPlayback(metadata, mediaClient, isLive: widget.isLive));
       unawaited(TrackerCoordinator.instance.startPlayback(metadata, mediaClient, isLive: widget.isLive));
     }
+
+    // Stremio sync is client-optional — it resolves the IMDb id from the item
+    // itself — so downloaded/offline playback (mediaClient == null) reports
+    // progress instead of silently never starting. This is the hook that was
+    // missing on Scott's playback path.
+    unawaited(StremioSyncService.instance.startPlayback(metadata, mediaClient, isLive: widget.isLive));
   }
 
   /// (Re)create the [PlaybackProgressTracker] for the current play session.
@@ -557,10 +564,12 @@ extension _VideoPlayerPlaybackServiceMethods on VideoPlayerScreenState {
       );
       DiscordRPCService.instance.updatePosition(position);
       TraktScrobbleService.instance.updatePosition(position);
+      StremioSyncService.instance.updatePosition(position);
       TrackerCoordinator.instance.updatePosition(position);
       // Keep Trakt's known duration current — mpv only emits on the duration
       // stream once per load, but this is cheap and avoids an extra listener.
       TraktScrobbleService.instance.updateDuration(currentPlayer.state.duration);
+      StremioSyncService.instance.updateDuration(currentPlayer.state.duration);
       TrackerCoordinator.instance.updateDuration(currentPlayer.state.duration);
     });
 
@@ -611,9 +620,11 @@ extension _VideoPlayerPlaybackServiceMethods on VideoPlayerScreenState {
     if (isPlaying) {
       DiscordRPCService.instance.resumePlayback();
       TraktScrobbleService.instance.resumePlayback();
+      StremioSyncService.instance.resumePlayback();
     } else {
       DiscordRPCService.instance.pausePlayback();
       TraktScrobbleService.instance.pausePlayback();
+      StremioSyncService.instance.pausePlayback();
     }
 
     // Update auto-PiP readiness

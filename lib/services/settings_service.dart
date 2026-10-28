@@ -72,6 +72,22 @@ extension SubtitleRenderScale on SubtitleRenderResolution {
 
 enum DvConversionModePreference { auto, disabled, dv81, hevcStrip }
 
+/// Age cut for the Stremio Continue Watching row.
+enum ContinueWatchingWindow {
+  days30('30 days', Duration(days: 30)),
+  days60('60 days', Duration(days: 60)),
+  days90('90 days', Duration(days: 90)),
+  days120('120 days', Duration(days: 120)),
+  any('Any time', null);
+
+  const ContinueWatchingWindow(this.label, this.maxAge);
+
+  final String label;
+
+  /// Null means no age cut at all.
+  final Duration? maxAge;
+}
+
 extension DvConversionModePreferenceNativeValue on DvConversionModePreference {
   String get nativeValue => switch (this) {
     DvConversionModePreference.auto => 'auto',
@@ -402,6 +418,8 @@ class SettingsService extends BaseSharedPreferencesService {
   static const enableMalScrobble = BoolPref('enable_mal_scrobble', defaultValue: true);
   static const enableAnilistScrobble = BoolPref('enable_anilist_scrobble', defaultValue: true);
   static const enableSimklScrobble = BoolPref('enable_simkl_scrobble', defaultValue: true);
+  static const enableStremioSync = BoolPref('enable_stremio_sync', defaultValue: true);
+  static const stremioAuthKey = NullableStringPref('stremio_auth_key');
   static const matchContentFrameRate = BoolPref('match_content_frame_rate');
   static const tunneledPlayback = BoolPref('tunneled_playback', defaultValue: true);
   static const dvConversionMode = EnumPref<DvConversionModePreference>(
@@ -426,6 +444,13 @@ class SettingsService extends BaseSharedPreferencesService {
   static const musicVolume = DoublePref('music_volume', defaultValue: 100.0);
   static const autoPlayNextEpisode = BoolPref('auto_play_next_episode', defaultValue: true);
   static const useExoPlayer = BoolPref('use_exoplayer', defaultValue: true);
+  /// How far back Continue Watching looks. Scott tunes this himself rather
+  /// than having a number chosen for him.
+  static const continueWatchingWindow = EnumPref<ContinueWatchingWindow>(
+    'continue_watching_window',
+    values: ContinueWatchingWindow.values,
+    defaultValue: ContinueWatchingWindow.any,
+  );
   static const startupSection = EnumPref<NavigationTabId>(
     'startup_section',
     values: NavigationTabId.values,

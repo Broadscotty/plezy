@@ -23,6 +23,7 @@ extension _VideoPlayerPlaybackPromptMethods on VideoPlayerScreenState {
     _updateMediaControlsPlaybackState();
     unawaited(DiscordRPCService.instance.pausePlayback());
     unawaited(TraktScrobbleService.instance.pausePlayback());
+    unawaited(StremioSyncService.instance.pausePlayback());
     if (_autoPipEnabled) {
       unawaited(_videoPIPManager?.updateAutoPipState(isPlaying: false));
     }

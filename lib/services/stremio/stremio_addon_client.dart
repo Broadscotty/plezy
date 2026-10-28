@@ -227,18 +227,60 @@ class StremioAddonClient {
     return StremioMetaPreview.fromJson(meta);
   }
 
+  /// Last stream-fetch failure, redacted for display (host + endpoint only,
+  /// never the config path carrying a debrid token). Null when the most
+  /// recent fetch succeeded. Survives the swallow-and-return-empty behaviour
+  /// below so callers can explain WHY a stream list came back empty instead
+  /// of reporting a bare "no streams".
+  String? lastStreamError;
+
   /// Candidate streams for a playable item. For series episodes, [id] is
   /// `{imdbId}:{season}:{episode}` per protocol convention.
   Future<List<StremioStream>> fetchStreams(String type, String id) async {
     try {
       final json = await _getJson('/stream/${Uri.encodeComponent(type)}/${Uri.encodeComponent(id)}.json');
       final streams = json['streams'] as List?;
-      if (streams == null) return const [];
+      lastStreamError = null;
+      if (streams == null) {
+        // Addons answer a bad config or an unknown id with an error object (or
+        // nothing at all) rather than a `streams` array. Reporting the shape of
+        // that answer -- never the config path, which carries the debrid token --
+        // is what turns a bare "returned no streams" into a cause.
+        lastStreamError = json.isEmpty ? 'empty response' : 'no streams key; response: ${_describeAddonResponse(json)}';
+        return const [];
+      }
+      if (streams.isEmpty) {
+        lastStreamError = 'streams array was empty';
+        return const [];
+      }
       return streams.whereType<Map<String, dynamic>>().map(StremioStream.fromJson).toList();
     } on StremioAddonException catch (e) {
       appLogger.w('Stremio stream fetch failed for $type/$id', error: e);
+      lastStreamError = e.message;
+      return const [];
+    } catch (e) {
+      appLogger.w('Stremio stream fetch threw for $type/$id', error: e);
+      lastStreamError = 'unexpected ${e.runtimeType}';
       return const [];
     }
+  }
+
+  /// Top-level response keys plus the value of the few keys an addon uses to
+  /// report a problem. Never echoes the request path -- for these addons that
+  /// path carries the Real-Debrid token.
+  static String _describeAddonResponse(Map<String, dynamic> json) {
+    final keys = json.keys.take(8).join(', ');
+    String? message;
+    for (final key in const ['error', 'message', 'reason', 'detail']) {
+      final value = json[key];
+      if (value is String && value.isNotEmpty) {
+        message = value.replaceAll(RegExp(r'\s+'), ' ');
+        break;
+      }
+    }
+    if (message == null) return keys;
+    final clipped = message.length > 160 ? '${message.substring(0, 160)}...' : message;
+    return '$keys -> $clipped';
   }
 
   void close() => _http.close();

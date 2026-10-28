@@ -31,6 +31,7 @@ import '../../services/storage_service.dart';
 import '../../mixins/refreshable.dart';
 import '../../mixins/item_updatable.dart';
 import '../../i18n/strings.g.dart';
+import '../../services/stremio/stremio_api_client.dart';
 import 'state_messages.dart';
 import 'tabs/library_browse_tab.dart';
 import 'tabs/library_recommended_tab.dart';
@@ -644,7 +645,11 @@ class _LibrariesScreenState extends State<LibrariesScreen>
     final isSelected = library.globalKey == _selectedLibraryGlobalKey;
     return AppMenuItem<String>(
       value: library.globalKey,
-      icon: ContentTypeHelper.getLibraryIcon(library.kind.id),
+      icon: switch (library.globalKey) {
+        stremioLibraryId => Symbols.live_tv_rounded,
+        stremioContinueId => Symbols.play_circle_rounded,
+        _ => ContentTypeHelper.getLibraryIcon(library.kind.id),
+      },
       label: library.title,
       selected: isSelected,
       subtitleWidget: showServerName
