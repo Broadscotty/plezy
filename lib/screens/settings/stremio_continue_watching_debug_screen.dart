@@ -35,9 +35,10 @@ class _StremioContinueWatchingDebugScreenState extends State<StremioContinueWatc
   Future<void> _load() async {
     try {
       final settings = await SettingsService.getInstance();
-      final protected = settings.read(SettingsService.stremioAuthKey);
-      if (protected == null) throw StateError('Stremio account is not connected');
-      final authKey = await CredentialVault.reveal(protected);
+      final stored = settings.read(SettingsService.stremioAuthKey);
+      if (stored == null) throw StateError('Stremio account is not connected');
+      final String protectedKey = stored;
+      final authKey = await CredentialVault.reveal(protectedKey);
       final items = await StremioApiClient().getAllItems(authKey);
       final report = buildContinueWatchingReport(items, DateTime.now());
       if (!mounted) return;
