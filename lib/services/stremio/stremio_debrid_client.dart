@@ -380,7 +380,7 @@ class StremioDebridClient extends MediaServerClient {
         MediaLibrary(
           id: stremioContinueId,
           backend: MediaBackend.debrid,
-          title: 'Stremio Continue Watching',
+          title: 'Continue Watching',
           kind: MediaKind.movie,
           serverId: serverId.toString(),
           serverName: 'Stremio',
@@ -557,8 +557,7 @@ class StremioDebridClient extends MediaServerClient {
       for (final item in items) {
         if (await _isContinueWatching(item)) keep.add(item);
       }
-      items = keep;
-      items.sort((a, b) => _stremioLastWatched(b).compareTo(_stremioLastWatched(a)));
+      items = sortContinueWatching(keep);
     } else {
       items.sort((a, b) => '${b['_mtime'] ?? ''}'.compareTo('${a['_mtime'] ?? ''}'));
     }
@@ -606,6 +605,18 @@ class StremioDebridClient extends MediaServerClient {
     final videoId = '${state['video_id'] ?? ''}';
     if (videoId.isEmpty) return false;
     return decodeWatchedBitfield(state['watched'], videoIds).contains(videoId);
+  }
+
+  /// How many rows Continue Watching keeps. Stremio's own clients surface it
+  /// as a Board row of the most recent handful; without the cap the tail of
+  /// every long-abandoned show lands here and nowhere else.
+  static const int continueWatchingLimit = 12;
+
+  /// Newest-watched first, capped to [continueWatchingLimit]. Pure so the
+  /// ordering and the cap are unit-testable without a network.
+  static List<Map<String, dynamic>> sortContinueWatching(List<Map<String, dynamic>> items) {
+    final sorted = [...items]..sort((a, b) => _stremioLastWatched(b).compareTo(_stremioLastWatched(a)));
+    return sorted.length > continueWatchingLimit ? sorted.sublist(0, continueWatchingLimit) : sorted;
   }
 
   /// Continue Watching membership: position-based, then the series-specific

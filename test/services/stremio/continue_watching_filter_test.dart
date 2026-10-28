@@ -99,4 +99,31 @@ void main() {
       expect(StremioDebridClient.isParkedOnWatchedEpisode(item, const []), isFalse);
     });
   });
+
+  group('StremioDebridClient.sortContinueWatching', () {
+    Map<String, dynamic> dated(String id, String lastWatched) =>
+        _datastoreItem(id: id, duration: 6000000, offset: 1200000, lastWatched: lastWatched);
+
+    test('most recently watched first', () {
+      final sorted = StremioDebridClient.sortContinueWatching([
+        dated('tt0000001', '2026-10-01T10:00:00.000Z'),
+        dated('tt0000002', '2026-10-24T10:00:00.000Z'),
+        dated('tt0000003', '2026-10-12T10:00:00.000Z'),
+      ]);
+
+      expect(sorted.map((i) => i['_id']).toList(), ['tt0000002', 'tt0000003', 'tt0000001']);
+    });
+
+    test('caps the list at continueWatchingLimit so the stale tail is gone', () {
+      final items = [
+        for (var day = 1; day <= 30; day++)
+          dated('tt00000${day.toString().padLeft(2, '0')}', '2026-09-${day.toString().padLeft(2, '0')}T10:00:00.000Z'),
+      ];
+
+      final sorted = StremioDebridClient.sortContinueWatching(items);
+
+      expect(sorted, hasLength(StremioDebridClient.continueWatchingLimit));
+      expect(sorted.first['_id'], 'tt0000030');
+    });
+  });
 }
