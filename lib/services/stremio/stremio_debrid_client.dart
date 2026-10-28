@@ -1138,7 +1138,26 @@ class StremioDebridClient extends MediaServerClient {
   }
 
   @override
-  Future<List<MediaItem>> fetchContinueWatching({int? count = 20}) async => const [];
+  /// Home-screen Continue Watching rows: the same account rows the library
+  /// pseudo-library serves, so the home row matches the web/TV clients instead
+  /// of showing nothing for debrid. Cross-server dedup and recency ordering are
+  /// applied by [DataAggregationService].
+  Future<List<MediaItem>> fetchContinueWatching({int? count = 20}) async {
+    try {
+      final authKey = await _accountAuthKey();
+      if (authKey == null) return const [];
+      final keep = <Map<String, dynamic>>[];
+      for (final item in await _accountItems(authKey)) {
+        if (await _isContinueWatching(item)) keep.add(item);
+      }
+      final sorted = sortContinueWatching(keep);
+      final limited = count != null && count < sorted.length ? sorted.sublist(0, count) : sorted;
+      return [for (final item in limited) await _mapAccountItem(item)];
+    } catch (e) {
+      appLogger.w('Stremio: continue watching fetch failed', error: e);
+      return const [];
+    }
+  }
 
   @override
   Future<List<MediaHub>> fetchLibraryHubs(
