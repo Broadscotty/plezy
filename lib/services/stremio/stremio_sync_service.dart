@@ -105,7 +105,27 @@ class StremioSyncService {
     appLogger.d('Stremio: skipping sync — $reason');
   }
 
-  Future<void> startPlayback(MediaItem metadata, MediaServerClient client, {bool isLive = false}) async {
+  /// IMDb id carried by the item itself, for playback paths with no media
+  /// server client (downloaded copies, offline library). Stremio item ids are
+  /// `type|id`, and for Cinemeta-backed titles the raw id *is* the IMDb id;
+  /// episodes carry the show id on [MediaItem.grandparentId].
+  static String? imdbIdFromItem(MediaItem metadata) {
+    final rawId = metadata.raw?['stremioId'] as String?;
+    String? candidate;
+    if (metadata.kind == MediaKind.episode) {
+      final grandparentId = metadata.grandparentId;
+      candidate = grandparentId != null && grandparentId.contains('|') ? grandparentId.split('|').last : rawId;
+    } else {
+      candidate = rawId ?? metadata.id.split('|').last;
+    }
+    final showId = candidate?.split(':').first;
+    return showId != null && showId.startsWith('tt') ? showId : null;
+  }
+
+  Future<void> startPlayback(MediaItem metadata, MediaServerClient? client, {bool isLive = false}) async {
+    // Stamped before every early return: a skip must never be indistinguishable
+    // from "the hook was never called", which is what the settings panel showed.
+    _lastAttemptAt = DateTime.now();
     final revision = ++_revision;
     _clear();
     await _ensureInitialized();
@@ -125,7 +145,9 @@ class StremioSyncService {
       return;
     }
 
-    final resolver = TrackerIdResolver(client, needsFribb: () => false);
+    // No client on the path (downloaded / offline playback) is not a reason to
+    // skip: the item carries the IDs sync needs.
+    final resolver = client == null ? null : TrackerIdResolver(client, needsFribb: () => false);
     String? imdb;
     _StremioTarget? target;
 
@@ -136,9 +158,11 @@ class StremioSyncService {
         _noteSkip('no season/episode for ${metadata.id}');
         return;
       }
-      final showIds = await resolver.resolveShowForEpisode(metadata, includeAnimeProgress: false);
+      final showIds = resolver == null
+          ? null
+          : await resolver.resolveShowForEpisode(metadata, includeAnimeProgress: false);
       if (revision != _revision) return;
-      imdb = showIds?.external.imdb;
+      imdb = showIds?.external.imdb ?? imdbIdFromItem(metadata);
       if (imdb == null) {
         _noteSkip('no show IMDb id for ${metadata.id}');
         return;
@@ -151,9 +175,9 @@ class StremioSyncService {
         title: metadata.grandparentTitle ?? metadata.parentTitle ?? metadata.title ?? '',
       );
     } else {
-      final ids = await resolver.resolveForMovie(metadata.id);
+      final ids = resolver == null ? null : await resolver.resolveForMovie(metadata.id);
       if (revision != _revision) return;
-      imdb = ids?.external.imdb;
+      imdb = ids?.external.imdb ?? imdbIdFromItem(metadata);
       if (imdb == null) {
         _noteSkip('no movie IMDb id for ${metadata.id}');
         return;

@@ -359,14 +359,19 @@ extension _VideoPlayerPlaybackServiceMethods on VideoPlayerScreenState {
       );
     }
 
-    // Scrobblers — Discord RPC, Trakt, unified tracker. All accept the
-    // neutral [MediaServerClient]; null short-circuits cleanly.
+    // Scrobblers — Discord RPC, Trakt, unified tracker. These need a server
+    // client to resolve IDs; null short-circuits them.
     if (mediaClient != null) {
       unawaited(DiscordRPCService.instance.startPlayback(metadata, mediaClient));
       unawaited(TraktScrobbleService.instance.startPlayback(metadata, mediaClient, isLive: widget.isLive));
-      unawaited(StremioSyncService.instance.startPlayback(metadata, mediaClient, isLive: widget.isLive));
       unawaited(TrackerCoordinator.instance.startPlayback(metadata, mediaClient, isLive: widget.isLive));
     }
+
+    // Stremio sync is client-optional — it resolves the IMDb id from the item
+    // itself — so downloaded/offline playback (mediaClient == null) reports
+    // progress instead of silently never starting. This is the hook that was
+    // missing on Scott's playback path.
+    unawaited(StremioSyncService.instance.startPlayback(metadata, mediaClient, isLive: widget.isLive));
   }
 
   /// (Re)create the [PlaybackProgressTracker] for the current play session.
