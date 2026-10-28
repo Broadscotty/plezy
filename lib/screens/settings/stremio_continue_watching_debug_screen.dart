@@ -41,7 +41,8 @@ class _StremioContinueWatchingDebugScreenState extends State<StremioContinueWatc
       final String? authKey = await CredentialVault.reveal(protectedKey);
       if (authKey == null) throw StateError('Stored Stremio credentials could not be read. Reconnect the account.');
       final items = await StremioApiClient().getAllItems(authKey);
-      final report = buildContinueWatchingReport(items, DateTime.now());
+      final maxAge = await StremioDebridClient.continueWatchingMaxAge();
+      final report = buildContinueWatchingReport(items, DateTime.now(), maxAge: maxAge);
       if (!mounted) return;
       setState(() {
         _report = report;
@@ -115,11 +116,11 @@ class _StremioContinueWatchingDebugScreenState extends State<StremioContinueWatc
 }
 
 /// Builds the plain-text table. Pure so it can be unit-tested.
-String buildContinueWatchingReport(List<Map<String, dynamic>> items, DateTime now) {
-  final rows = items.where((i) => i['removed'] != true).toList();
+String buildContinueWatchingReport(List<Map<String, dynamic>> items, DateTime now, {Duration? maxAge}) {
+  final rows = items.where((i) => i['removed'] != true || i['temp'] == true).toList();
   final lines = <String>[];
-  final kept = rows.where(StremioDebridClient.hasUnfinishedPosition).length;
-  lines.add('rows=${rows.length} inContinueWatching=$kept');
+  final kept = rows.where((i) => StremioDebridClient.hasUnfinishedPosition(i, now: now, maxAge: maxAge)).length;
+  lines.add('rows=${rows.length} inContinueWatching=$kept (window ${maxAge?.inDays ?? 'any'}d)');
   lines.add('IN/OUT  title | type | progress | lastWatched | timesWatched | watchedField');
 
   final parsed = rows.map((item) {
@@ -137,25 +138,28 @@ String buildContinueWatchingReport(List<Map<String, dynamic>> items, DateTime no
     final state = row.state;
     final duration = int.tryParse('${state['duration'] ?? 0}') ?? 0;
     final offset = int.tryParse('${state['timeOffset'] ?? 0}') ?? 0;
-    final pct = duration > 0 ? (100 * offset / duration).round() : 0;
+    final pct = duration > 0 ? '${(100 * offset / duration).round()}%' : 'pos=$offset';
     final age = row.at == null ? 'none' : '${now.difference(row.at!.toLocal()).inDays}d';
     final timesWatched = state['timesWatched'] ?? 0;
     final watchedField = (state['watched'] is String && (state['watched'] as String).isNotEmpty) ? 'yes' : 'no';
-    final verdict = StremioDebridClient.hasUnfinishedPosition(row.item) ? 'IN ' : 'OUT';
-    final reason = verdict == 'IN ' ? '' : '  <- ${_reason(row.item, duration, offset, row.at)}';
+    final verdict = StremioDebridClient.hasUnfinishedPosition(row.item, now: now, maxAge: maxAge) ? 'IN ' : 'OUT';
+    final reason = verdict == 'IN ' ? '' : '  <- ${_reason(row.item, duration, offset, row.at, now, maxAge)}';
     lines.add(
-      '$verdict  ${row.item['name'] ?? row.item['_id']} | ${row.item['type']} | $pct% | $age | $timesWatched | $watchedField$reason',
+      '$verdict  ${row.item['name'] ?? row.item['_id']} | ${row.item['type']} | $pct | $age | $timesWatched | $watchedField$reason',
     );
   }
   return lines.join('\n');
 }
 
-String _reason(Map<String, dynamic> item, int duration, int offset, DateTime? lastWatched) {
+String _reason(Map<String, dynamic> item, int duration, int offset, DateTime? lastWatched, DateTime now, Duration? maxAge) {
   final type = '${item['type']}';
   if (type != 'movie' && type != 'series') return 'type $type';
-  if (duration <= 0) return 'no duration';
+  if (item['removed'] == true && item['temp'] != true) return 'removed from library';
   if (offset <= 0) return 'no progress';
-  if (offset >= duration * 0.97) return 'at credits';
+  if (duration > 0 && offset >= duration * 0.97) return 'at credits';
   if (lastWatched == null) return 'no lastWatched';
+  if (maxAge != null && now.difference(lastWatched.toLocal()) > maxAge) {
+    return 'older than ${maxAge.inDays}d';
+  }
   return 'unknown';
 }

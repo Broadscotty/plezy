@@ -16,7 +16,9 @@ import '../../widgets/app_icon.dart';
 import '../../widgets/focused_scroll_scaffold.dart';
 import '../../widgets/focusable_list_tile.dart';
 import '../../widgets/loading_indicator_box.dart';
+import '../../widgets/setting_tile.dart';
 import '../../widgets/settings_section.dart';
+import 'settings_utils.dart';
 
 /// Connect a Stremio account via the official device-link flow and control
 /// the watch-progress sync toggle.
@@ -264,6 +266,22 @@ class _StremioSettingsScreenState extends State<StremioSettingsScreen> {
                         context,
                         MaterialPageRoute(builder: (_) => const StremioContinueWatchingDebugScreen()),
                       ),
+                    ),
+                  ],
+                ),
+                SettingsGroup(
+                  title: 'Continue Watching',
+                  children: [
+                    SettingSelectionTile<ContinueWatchingWindow, ContinueWatchingWindow>(
+                      pref: SettingsService.continueWatchingWindow,
+                      icon: Symbols.history_rounded,
+                      title: 'Only show titles played in the last',
+                      subtitleBuilder: (value) => value.label,
+                      options: ContinueWatchingWindow.values
+                          .map((value) => DialogOption(value: value, title: value.label))
+                          .toList(),
+                      decode: (value) => value,
+                      encode: (value) => value,
                     ),
                   ],
                 ),

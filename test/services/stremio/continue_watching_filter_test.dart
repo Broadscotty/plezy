@@ -58,10 +58,44 @@ void main() {
       expect(StremioDebridClient.hasUnfinishedPosition(item), isFalse);
     });
 
-    test('an old stamp still counts -- recency is not a filter', () {
+    test('a position with no duration still counts -- the clients keep those rows', () {
+      final item = _datastoreItem(duration: 0, offset: 45000, lastWatched: '2026-10-25T10:00:00.000Z');
+
+      expect(StremioDebridClient.hasUnfinishedPosition(item, maxAge: const Duration(days: 90)), isTrue);
+    });
+
+    test('a removed row is dropped unless it is temporary', () {
+      final removed = {..._datastoreItem(duration: 6000000, offset: 1200000), 'removed': true};
+      final temporary = {...removed, 'temp': true};
+
+      expect(StremioDebridClient.hasUnfinishedPosition(removed), isFalse);
+      expect(StremioDebridClient.hasUnfinishedPosition(temporary), isTrue);
+    });
+
+    test('something paused a month ago stays -- that is still "watching"', () {
+      final item = _datastoreItem(duration: 6000000, offset: 2400000, lastWatched: '2026-09-26T10:00:00.000Z');
+
+      expect(
+        StremioDebridClient.hasUnfinishedPosition(
+          item,
+          now: DateTime.utc(2026, 10, 28),
+          maxAge: const Duration(days: 90),
+        ),
+        isTrue,
+      );
+    });
+
+    test('something abandoned five months ago ages out', () {
       final item = _datastoreItem(duration: 6000000, offset: 2400000, lastWatched: '2026-06-01T10:00:00.000Z');
 
-      expect(StremioDebridClient.hasUnfinishedPosition(item), isTrue);
+      expect(
+        StremioDebridClient.hasUnfinishedPosition(
+          item,
+          now: DateTime.utc(2026, 10, 28),
+          maxAge: const Duration(days: 90),
+        ),
+        isFalse,
+      );
     });
   });
 

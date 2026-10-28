@@ -551,7 +551,7 @@ class StremioDebridClient extends MediaServerClient {
       );
     }
 
-    var items = (await _accountItems(authKey)).where((i) => i['removed'] != true).toList();
+    var items = (await _accountItems(authKey)).where((i) => i['removed'] != true || i['temp'] == true).toList();
     if (libraryId == stremioContinueId) {
       final keep = <Map<String, dynamic>>[];
       for (final item in items) {
@@ -580,24 +580,36 @@ class StremioDebridClient extends MediaServerClient {
   static const double _finishedFraction = 0.97;
 
   /// True when the datastore state carries a started-but-unfinished position:
-  /// a real duration, a real offset, not already at the credits, and a
-  /// lastWatched stamp proving it was actually played.
-  static bool hasUnfinishedPosition(Map<String, dynamic> item) {
+  /// a real duration, a real offset, not already at the credits, a lastWatched
+  /// stamp proving it was played, and -- when [maxAge] is given -- that stamp
+  /// being recent enough to still count. [maxAge] comes from the
+  /// ContinueWatchingWindow setting; null means no age cut.
+  static bool hasUnfinishedPosition(Map<String, dynamic> item, {DateTime? now, Duration? maxAge}) {
     final type = '${item['type']}';
     if (type != 'movie' && type != 'series') return false;
+    // Stremio's own rule (`LibraryItem::is_in_continue_watching`) is type plus
+    // "has a position" plus "not removed unless temporary". A row with a
+    // position but no duration is still in progress to every other client, so
+    // requiring a duration here hid real history.
+    if (item['removed'] == true && item['temp'] != true) return false;
     final state = _stateOf(item) ?? const <String, dynamic>{};
     final duration = int.tryParse('${state['duration'] ?? 0}') ?? 0;
     final offset = int.tryParse('${state['timeOffset'] ?? 0}') ?? 0;
-    if (duration <= 0 || offset <= 0) return false;
-    if (offset >= duration * _finishedFraction) return false;
+    if (offset <= 0) return false;
+    // Only judge "at the credits" when a duration is actually known.
+    if (duration > 0 && offset >= duration * _finishedFraction) return false;
     // No lastWatched means the row exists because something was added to the
     // library, not because it was played. Stremio's own clients don't list
     // those, so neither do we.
-    // Recency is deliberately NOT a filter here: the datastore's lastWatched
-    // stamp is nowhere near reliable enough to age rows out on (Scott's account
-    // kept almost everything outside a 30-day window), so ordering plus the
-    // row cap is left to decide what surfaces.
-    return _stremioLastWatched(item).isNotEmpty;
+    final stamp = _stremioLastWatched(item);
+    if (stamp.isEmpty) return false;
+    if (maxAge == null) return true;
+    final lastWatched = DateTime.tryParse(stamp);
+    // An unreadable stamp means "played, age unknown" -- keep it rather than
+    // hide a row on a datastore format change.
+    if (lastWatched == null) return true;
+    final reference = now ?? DateTime.now();
+    return reference.difference(lastWatched.toLocal()) <= maxAge;
   }
 
   /// True when a series row is parked on an episode the account already
@@ -623,10 +635,21 @@ class StremioDebridClient extends MediaServerClient {
     return sorted.length > continueWatchingLimit ? sorted.sublist(0, continueWatchingLimit) : sorted;
   }
 
+  /// The user's age cut for Continue Watching; null means "any time".
+  static Future<Duration?> continueWatchingMaxAge() async {
+    try {
+      final settings = await SettingsService.getInstance();
+      return settings.read(SettingsService.continueWatchingWindow).maxAge;
+    } catch (_) {
+      return const Duration(days: 90);
+    }
+  }
+
   /// Continue Watching membership: position-based, then the series-specific
   /// "parked on a watched episode" check (needs the show's episode list).
   Future<bool> _isContinueWatching(Map<String, dynamic> item) async {
-    if (!hasUnfinishedPosition(item)) return false;
+    final maxAge = await continueWatchingMaxAge();
+    if (!hasUnfinishedPosition(item, maxAge: maxAge)) return false;
     if ('${item['type']}' != 'series') return true;
     try {
       final videoIds = await _accountApi.seriesVideoIds('${item['_id']}');
