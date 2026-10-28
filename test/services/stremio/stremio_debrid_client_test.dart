@@ -336,7 +336,7 @@ void main() {
       expect(results[0].title, 'Sky F1 (search match)');
     });
 
-    test('doesn't throw when Cinemeta is down', () async {
+    test('Cinemeta being down does not throw', () async {
       final mockClient = _MockStremioClient(
         streamManifest: _formulioManifest,
         cinemetaManifest: _cinemetaManifest,
