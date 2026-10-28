@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../media/ids.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 import '../../focus/focusable_action_bar.dart';
 import '../../media/media_item.dart';
+import '../../media/media_backend.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/multi_server_provider.dart';
 import '../../models/download_models.dart';
@@ -53,6 +56,18 @@ class DownloadsScreenState extends State<DownloadsScreen>
     super.initState();
     suppressAutoFocus = true; // Start suppressed
     initTabNavigation();
+    // Pull progress made on another device (Stremio web/TV) into these rows:
+    // debrid metadata is cached locally and would otherwise show stale
+    // positions forever.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final manager = context.read<MultiServerProvider>().serverManager;
+      unawaited(
+        context.read<DownloadProvider>().refreshWatchStateFromServers(
+          isDebridServer: (serverId) => manager.getClient(ServerId(serverId))?.backend == MediaBackend.debrid,
+        ),
+      );
+    });
   }
 
   @override

@@ -1669,6 +1669,40 @@ class DownloadProvider extends ChangeNotifier with DisposableChangeNotifierMixin
     await _loadPersistedDownloads();
   }
 
+  /// Pull watch state that changed elsewhere down into the download rows.
+  ///
+  /// Debrid rows carry locally cached metadata, so a cache read can never see
+  /// progress made on another device -- watching on the Stremio web/TV app left
+  /// Plezy's Downloads showing the old position. Refetching through the client
+  /// merges the account's position and rewrites the cache.
+  ///
+  /// [isDebridServer] keeps this to the backends where the account is the only
+  /// record of playback; Plex/Jellyfin already refresh their own metadata.
+  Future<void> refreshWatchStateFromServers({required bool Function(String serverId) isDebridServer}) async {
+    await ensureInitialized();
+    final keys = _downloads.keys.where(_ownsDownloadKey).toList();
+    if (keys.isEmpty) return;
+    var changed = false;
+    for (final globalKey in keys) {
+      final parsed = parseGlobalKey(globalKey);
+      if (parsed == null || !isDebridServer(parsed.serverId.toString())) continue;
+      try {
+        final refreshed = await _downloadManager.fetchAndPinMetadata(
+          parsed.serverId,
+          parsed.ratingKey,
+          preferActiveScope: true,
+          activeProfileId: _activeProfileId,
+        );
+        if (refreshed == null) continue;
+        _metadata[globalKey] = refreshed;
+        changed = true;
+      } catch (e) {
+        appLogger.d('Watch-state refresh failed for $globalKey', error: e);
+      }
+    }
+    if (changed) safeNotifyListeners();
+  }
+
   /// Resume queued downloads that were interrupted by app kill.
   /// Call after a [MediaServerClient] becomes available (e.g. after server connect on launch).
   void resumeQueuedDownloads(MediaServerClient client) {
