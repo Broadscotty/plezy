@@ -256,7 +256,7 @@ class _StremioSettingsScreenState extends State<StremioSettingsScreen> {
                       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StremioLibraryScreen())),
                     ),
                     FocusableListTile(
-                      leading: const AppIcon(Symbols.playlist_play_rounded),
+                      leading: const AppIcon(Symbols.play_circle_rounded),
                       title: const Text('Continue Watching rows'),
                       subtitle: const Text('Every account row with its progress and why it is kept or filtered'),
                       trailing: const AppIcon(Symbols.chevron_right_rounded),

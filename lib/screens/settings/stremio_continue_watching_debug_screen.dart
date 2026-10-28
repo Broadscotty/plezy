@@ -38,7 +38,8 @@ class _StremioContinueWatchingDebugScreenState extends State<StremioContinueWatc
       final stored = settings.read(SettingsService.stremioAuthKey);
       if (stored == null) throw StateError('Stremio account is not connected');
       final String protectedKey = stored;
-      final authKey = await CredentialVault.reveal(protectedKey);
+      final String? authKey = await CredentialVault.reveal(protectedKey);
+      if (authKey == null) throw StateError('Stored Stremio credentials could not be read. Reconnect the account.');
       final items = await StremioApiClient().getAllItems(authKey);
       final report = buildContinueWatchingReport(items, DateTime.now());
       if (!mounted) return;
