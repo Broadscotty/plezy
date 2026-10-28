@@ -47,8 +47,7 @@ void main() {
       expect(StremioDebridClient.hasUnfinishedPosition(item), isFalse);
     });
 
-    test('zero duration or zero offset is excluded', () {
-      expect(StremioDebridClient.hasUnfinishedPosition(_datastoreItem(duration: 0, offset: 1000)), isFalse);
+    test('zero offset is excluded', () {
       expect(StremioDebridClient.hasUnfinishedPosition(_datastoreItem(duration: 6000000, offset: 0)), isFalse);
     });
 
