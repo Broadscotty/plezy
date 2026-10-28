@@ -142,11 +142,13 @@ String buildContinueWatchingReport(List<Map<String, dynamic>> items, DateTime no
     final age = row.at == null ? 'none' : '${now.difference(row.at!.toLocal()).inDays}d';
     final timesWatched = state['timesWatched'] ?? 0;
     final watchedField = (state['watched'] is String && (state['watched'] as String).isNotEmpty) ? 'yes' : 'no';
+    final videoId = '${state['video_id'] ?? ''}';
     final verdict = _inContinueWatching(row.item, now, maxAge) ? 'IN ' : 'OUT';
     final reason = verdict == 'IN ' ? '' : '  <- ${_reason(row.item, offset, row.at, now, maxAge)}';
     final name = row.item['name'] ?? row.item['_id'];
     final type = row.item['type'];
-    lines.add('$verdict  $name | $type | $pct | $age | $timesWatched | $watchedField$reason');
+    final episode = videoId.isEmpty ? '' : ' | at $videoId';
+    lines.add('$verdict  $name | $type | $pct | $age | $timesWatched | $watchedField$episode$reason');
   }
   return lines.join('\n');
 }

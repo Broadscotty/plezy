@@ -882,9 +882,25 @@ class StremioDebridClient extends MediaServerClient {
     ];
   }
 
+  /// The item plus the episode the account is actually mid-way through.
+  ///
+  /// Returning null here left the detail screen to guess "next unwatched" from
+  /// the watched bitfield, which is why Continue Watching opened S2E2 while the
+  /// account (and every other client) said S2E6. The datastore's `video_id`
+  /// names the in-progress episode; it is authoritative.
   @override
-  Future<({MediaItem? item, MediaItem? onDeckEpisode})> fetchItemWithOnDeck(String id) async =>
-      (item: await fetchItem(id), onDeckEpisode: null);
+  Future<({MediaItem? item, MediaItem? onDeckEpisode})> fetchItemWithOnDeck(String id) async {
+    final item = await fetchItem(id);
+    if (item == null || item.kind != MediaKind.show) return (item: item, onDeckEpisode: null);
+    final parsed = StremioItemId.parse(id);
+    final state = await _accountState(parsed.stremioId);
+    final videoId = '${state?['video_id'] ?? ''}';
+    final split = _splitShowVideoId(videoId);
+    if (split.season == null || split.episode == null) return (item: item, onDeckEpisode: null);
+    final episode = await fetchItem(StremioItemId(parsed.type, videoId).toString());
+    if (episode == null || episode.kind != MediaKind.episode) return (item: item, onDeckEpisode: null);
+    return (item: item, onDeckEpisode: episode);
+  }
 
   /// Return a show's SEASONS (grouped from the flat video list) or a single
   /// season's episodes when [parentId] is season-scoped. The detail screen
