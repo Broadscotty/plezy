@@ -11,6 +11,7 @@ import '../../services/stremio/stremio_api_client.dart';
 import '../../services/stremio/stremio_sync_service.dart';
 import '../../utils/app_logger.dart';
 import '../stremio_library_screen.dart';
+import 'stremio_continue_watching_debug_screen.dart';
 import '../../widgets/app_icon.dart';
 import '../../widgets/focused_scroll_scaffold.dart';
 import '../../widgets/focusable_list_tile.dart';
@@ -253,6 +254,16 @@ class _StremioSettingsScreenState extends State<StremioSettingsScreen> {
                       subtitle: const Text('Everything in your Stremio account, with watched status'),
                       trailing: const AppIcon(Symbols.chevron_right_rounded),
                       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StremioLibraryScreen())),
+                    ),
+                    FocusedListTile(
+                      leading: const AppIcon(Symbols.playlist_play_rounded),
+                      title: const Text('Continue Watching rows'),
+                      subtitle: const Text('Every account row with its progress and why it is kept or filtered'),
+                      trailing: const AppIcon(Symbols.chevron_right_rounded),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const StremioContinueWatchingDebugScreen()),
+                      ),
                     ),
                   ],
                 ),
