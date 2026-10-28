@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:plezy/services/stremio/stremio_api_client.dart';
 import 'package:plezy/services/stremio/stremio_debrid_client.dart';
 
-/// Continue Watching must list what Stremio's own clients list: a real
-/// in-progress position, and never a show parked on an episode the account
-/// already counts as watched.
+/// Continue Watching is meant to be byte-for-byte the clients' list, so these
+/// tests pin Stremio's own rule (`LibraryItem::is_in_continue_watching`):
+/// type is not "other", the row is not removed unless temporary, and it carries
+/// a playback position. No duration, no lastWatched, no credits cut.
 
 Map<String, dynamic> _datastoreItem({
   String type = 'movie',
@@ -12,130 +12,54 @@ Map<String, dynamic> _datastoreItem({
   int? duration,
   int? offset,
   String? lastWatched = '2026-10-20T10:00:00.000Z',
-  String? videoId,
-  String? watched,
+  bool removed = false,
+  bool temporary = false,
 }) => {
   '_id': id,
   'type': type,
   'name': 'Test item',
+  'removed': removed,
+  'temp': temporary,
   'state': {
     if (duration != null) 'duration': duration,
     if (offset != null) 'timeOffset': offset,
     if (lastWatched != null) 'lastWatched': lastWatched,
-    if (videoId != null) 'video_id': videoId,
-    if (watched != null) 'watched': watched,
   },
 };
 
 void main() {
-  group('StremioDebridClient.hasUnfinishedPosition', () {
-    test('a movie part-way through is continue-watching material', () {
-      final item = _datastoreItem(duration: 6000000, offset: 2400000);
-
-      expect(StremioDebridClient.hasUnfinishedPosition(item), isTrue);
+  group('StremioDebridClient.isInContinueWatching', () {
+    test('a row with a position is in, exactly as the clients do it', () {
+      expect(StremioDebridClient.isInContinueWatching(_datastoreItem(duration: 6000000, offset: 2400000)), isTrue);
     });
 
-    test('a movie at the credits is not', () {
-      final item = _datastoreItem(duration: 6000000, offset: 5900000);
-
-      expect(StremioDebridClient.hasUnfinishedPosition(item), isFalse);
+    test('a row at the credits still counts -- the clients do not cut there', () {
+      expect(StremioDebridClient.isInContinueWatching(_datastoreItem(duration: 6000000, offset: 5990000)), isTrue);
     });
 
-    test('a row with no lastWatched was never played, so it is excluded', () {
-      final item = _datastoreItem(duration: 6000000, offset: 2400000, lastWatched: null);
-
-      expect(StremioDebridClient.hasUnfinishedPosition(item), isFalse);
+    test('a position with no duration counts', () {
+      expect(StremioDebridClient.isInContinueWatching(_datastoreItem(duration: 0, offset: 45000)), isTrue);
     });
 
-    test('zero offset is excluded', () {
-      expect(StremioDebridClient.hasUnfinishedPosition(_datastoreItem(duration: 6000000, offset: 0)), isFalse);
+    test('no lastWatched is fine -- position alone decides', () {
+      expect(StremioDebridClient.isInContinueWatching(_datastoreItem(offset: 45000, lastWatched: null)), isTrue);
     });
 
-    test('non watchable datastore types (channels, tv) are excluded', () {
-      final item = _datastoreItem(type: 'channel', duration: 6000000, offset: 2400000);
-
-      expect(StremioDebridClient.hasUnfinishedPosition(item), isFalse);
+    test('zero position is out', () {
+      expect(StremioDebridClient.isInContinueWatching(_datastoreItem(duration: 6000000, offset: 0)), isFalse);
     });
 
-    test('a position with no duration still counts -- the clients keep those rows', () {
-      final item = _datastoreItem(duration: 0, offset: 45000, lastWatched: '2026-10-25T10:00:00.000Z');
-
-      expect(StremioDebridClient.hasUnfinishedPosition(item, maxAge: const Duration(days: 90)), isTrue);
+    test('only type "other" is excluded by type', () {
+      expect(StremioDebridClient.isInContinueWatching(_datastoreItem(type: 'other', offset: 45000)), isFalse);
+      expect(StremioDebridClient.isInContinueWatching(_datastoreItem(type: 'channel', offset: 45000)), isTrue);
     });
 
-    test('a removed row is dropped unless it is temporary', () {
-      final removed = {..._datastoreItem(duration: 6000000, offset: 1200000), 'removed': true};
-      final temporary = {...removed, 'temp': true};
-
-      expect(StremioDebridClient.hasUnfinishedPosition(removed), isFalse);
-      expect(StremioDebridClient.hasUnfinishedPosition(temporary), isTrue);
-    });
-
-    test('something paused a month ago stays -- that is still "watching"', () {
-      final item = _datastoreItem(duration: 6000000, offset: 2400000, lastWatched: '2026-09-26T10:00:00.000Z');
-
+    test('a removed row is out unless it is temporary', () {
+      expect(StremioDebridClient.isInContinueWatching(_datastoreItem(offset: 45000, removed: true)), isFalse);
       expect(
-        StremioDebridClient.hasUnfinishedPosition(
-          item,
-          now: DateTime.utc(2026, 10, 28),
-          maxAge: const Duration(days: 90),
-        ),
+        StremioDebridClient.isInContinueWatching(_datastoreItem(offset: 45000, removed: true, temporary: true)),
         isTrue,
       );
-    });
-
-    test('something abandoned five months ago ages out', () {
-      final item = _datastoreItem(duration: 6000000, offset: 2400000, lastWatched: '2026-06-01T10:00:00.000Z');
-
-      expect(
-        StremioDebridClient.hasUnfinishedPosition(
-          item,
-          now: DateTime.utc(2026, 10, 28),
-          maxAge: const Duration(days: 90),
-        ),
-        isFalse,
-      );
-    });
-  });
-
-  group('StremioDebridClient.isParkedOnWatchedEpisode', () {
-    const videoIds = ['tt0944947:1:1', 'tt0944947:1:2', 'tt0944947:1:3'];
-
-    test('parked episode already marked watched is not continue-watching', () {
-      final item = _datastoreItem(
-        type: 'series',
-        id: 'tt0944947',
-        duration: 3600000,
-        offset: 1800000,
-        videoId: 'tt0944947:1:2',
-        watched: encodeWatchedBitfield({'tt0944947:1:2'}, videoIds),
-      );
-
-      expect(StremioDebridClient.isParkedOnWatchedEpisode(item, videoIds), isTrue);
-    });
-
-    test('parked episode still unwatched keeps the show in continue watching', () {
-      final item = _datastoreItem(
-        type: 'series',
-        id: 'tt0944947',
-        duration: 3600000,
-        offset: 1800000,
-        videoId: 'tt0944947:1:2',
-        watched: encodeWatchedBitfield({'tt0944947:1:1'}, videoIds),
-      );
-
-      expect(StremioDebridClient.isParkedOnWatchedEpisode(item, videoIds), isFalse);
-    });
-
-    test('no episode list available means no exclusion', () {
-      final item = _datastoreItem(
-        type: 'series',
-        id: 'tt0944947',
-        videoId: 'tt0944947:1:2',
-        watched: encodeWatchedBitfield({'tt0944947:1:2'}, videoIds),
-      );
-
-      expect(StremioDebridClient.isParkedOnWatchedEpisode(item, const []), isFalse);
     });
   });
 
@@ -153,16 +77,13 @@ void main() {
       expect(sorted.map((i) => i['_id']).toList(), ['tt0000002', 'tt0000003', 'tt0000001']);
     });
 
-    test('caps the list at continueWatchingLimit so the stale tail is gone', () {
+    test('keeps every row -- no cap', () {
       final items = [
         for (var day = 1; day <= 30; day++)
           dated('tt00000${day.toString().padLeft(2, '0')}', '2026-09-${day.toString().padLeft(2, '0')}T10:00:00.000Z'),
       ];
 
-      final sorted = StremioDebridClient.sortContinueWatching(items);
-
-      expect(sorted, hasLength(StremioDebridClient.continueWatchingLimit));
-      expect(sorted.first['_id'], 'tt0000030');
+      expect(StremioDebridClient.sortContinueWatching(items), hasLength(30));
     });
   });
 }

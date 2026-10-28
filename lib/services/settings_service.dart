@@ -449,7 +449,7 @@ class SettingsService extends BaseSharedPreferencesService {
   static const continueWatchingWindow = EnumPref<ContinueWatchingWindow>(
     'continue_watching_window',
     values: ContinueWatchingWindow.values,
-    defaultValue: ContinueWatchingWindow.days90,
+    defaultValue: ContinueWatchingWindow.any,
   );
   static const startupSection = EnumPref<NavigationTabId>(
     'startup_section',

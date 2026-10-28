@@ -119,7 +119,7 @@ class _StremioContinueWatchingDebugScreenState extends State<StremioContinueWatc
 String buildContinueWatchingReport(List<Map<String, dynamic>> items, DateTime now, {Duration? maxAge}) {
   final rows = items.where((i) => i['removed'] != true || i['temp'] == true).toList();
   final lines = <String>[];
-  final kept = rows.where((i) => StremioDebridClient.hasUnfinishedPosition(i, now: now, maxAge: maxAge)).length;
+  final kept = rows.where((i) => _inContinueWatching(i, now, maxAge)).length;
   lines.add('rows=${rows.length} inContinueWatching=$kept (window ${maxAge?.inDays ?? 'any'}d)');
   lines.add('IN/OUT  title | type | progress | lastWatched | timesWatched | watchedField');
 
@@ -134,7 +134,7 @@ String buildContinueWatchingReport(List<Map<String, dynamic>> items, DateTime no
       return bx.compareTo(ax);
     });
 
-  for (final row in parsed.take(60)) {
+  for (final row in parsed.take(80)) {
     final state = row.state;
     final duration = int.tryParse('${state['duration'] ?? 0}') ?? 0;
     final offset = int.tryParse('${state['timeOffset'] ?? 0}') ?? 0;
@@ -142,24 +142,32 @@ String buildContinueWatchingReport(List<Map<String, dynamic>> items, DateTime no
     final age = row.at == null ? 'none' : '${now.difference(row.at!.toLocal()).inDays}d';
     final timesWatched = state['timesWatched'] ?? 0;
     final watchedField = (state['watched'] is String && (state['watched'] as String).isNotEmpty) ? 'yes' : 'no';
-    final verdict = StremioDebridClient.hasUnfinishedPosition(row.item, now: now, maxAge: maxAge) ? 'IN ' : 'OUT';
-    final reason = verdict == 'IN ' ? '' : '  <- ${_reason(row.item, duration, offset, row.at, now, maxAge)}';
-    lines.add(
-      '$verdict  ${row.item['name'] ?? row.item['_id']} | ${row.item['type']} | $pct | $age | $timesWatched | $watchedField$reason',
-    );
+    final verdict = _inContinueWatching(row.item, now, maxAge) ? 'IN ' : 'OUT';
+    final reason = verdict == 'IN ' ? '' : '  <- ${_reason(row.item, offset, row.at, now, maxAge)}';
+    final name = row.item['name'] ?? row.item['_id'];
+    final type = row.item['type'];
+    lines.add('$verdict  $name | $type | $pct | $age | $timesWatched | $watchedField$reason');
   }
   return lines.join('\n');
 }
 
-String _reason(Map<String, dynamic> item, int duration, int offset, DateTime? lastWatched, DateTime now, Duration? maxAge) {
-  final type = '${item['type']}';
-  if (type != 'movie' && type != 'series') return 'type $type';
+/// Same rule the client uses, plus the user's optional age cut.
+bool _inContinueWatching(Map<String, dynamic> item, DateTime now, Duration? maxAge) {
+  if (!StremioDebridClient.isInContinueWatching(item)) return false;
+  if (maxAge == null) return true;
+  final rawState = item['state'];
+  final state = rawState is Map<String, dynamic> ? rawState : const <String, dynamic>{};
+  final at = DateTime.tryParse('${state['lastWatched'] ?? ''}');
+  if (at == null) return true;
+  return now.difference(at.toLocal()) <= maxAge;
+}
+
+String _reason(Map<String, dynamic> item, int offset, DateTime? lastWatched, DateTime now, Duration? maxAge) {
+  if ('${item['type']}' == 'other') return 'type other';
   if (item['removed'] == true && item['temp'] != true) return 'removed from library';
   if (offset <= 0) return 'no progress';
-  if (duration > 0 && offset >= duration * 0.97) return 'at credits';
-  if (lastWatched == null) return 'no lastWatched';
-  if (maxAge != null && now.difference(lastWatched.toLocal()) > maxAge) {
-    return 'older than ${maxAge.inDays}d';
+  if (maxAge != null && lastWatched != null && now.difference(lastWatched.toLocal()) > maxAge) {
+    return 'older than ${maxAge!.inDays}d';
   }
   return 'unknown';
 }

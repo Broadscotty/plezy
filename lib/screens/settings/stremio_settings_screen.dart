@@ -260,7 +260,7 @@ class _StremioSettingsScreenState extends State<StremioSettingsScreen> {
                     FocusableListTile(
                       leading: const AppIcon(Symbols.play_circle_rounded),
                       title: const Text('Continue Watching rows'),
-                      subtitle: const Text('Every account row with its progress and why it is kept or filtered'),
+                      subtitle: const Text('Every account row, with its progress and why it is kept or dropped'),
                       trailing: const AppIcon(Symbols.chevron_right_rounded),
                       onTap: () => Navigator.push(
                         context,

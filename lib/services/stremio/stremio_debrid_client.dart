@@ -574,66 +574,23 @@ class StremioDebridClient extends MediaServerClient {
     return LibraryPage(items: mapped.sublist(start, end), totalCount: total, offset: start);
   }
 
-  /// Fraction of the runtime at which a position is treated as "at the
-  /// credits" and therefore finished. Matches what the account datastore
-  /// carries for a played-out item.
-  static const double _finishedFraction = 0.97;
-
-  /// True when the datastore state carries a started-but-unfinished position:
-  /// a real duration, a real offset, not already at the credits, a lastWatched
-  /// stamp proving it was played, and -- when [maxAge] is given -- that stamp
-  /// being recent enough to still count. [maxAge] comes from the
-  /// ContinueWatchingWindow setting; null means no age cut.
-  static bool hasUnfinishedPosition(Map<String, dynamic> item, {DateTime? now, Duration? maxAge}) {
-    final type = '${item['type']}';
-    if (type != 'movie' && type != 'series') return false;
-    // Stremio's own rule (`LibraryItem::is_in_continue_watching`) is type plus
-    // "has a position" plus "not removed unless temporary". A row with a
-    // position but no duration is still in progress to every other client, so
-    // requiring a duration here hid real history.
+  /// Stremio's own Continue Watching rule, verbatim from
+  /// `LibraryItem::is_in_continue_watching`: type is not "other", the row is
+  /// not removed (unless temporary), and it carries a playback position.
+  /// Nothing else is filtered or aged here -- Scott wants this list identical
+  /// to what the web and TV clients show.
+  static bool isInContinueWatching(Map<String, dynamic> item) {
+    if ('${item['type']}' == 'other') return false;
     if (item['removed'] == true && item['temp'] != true) return false;
     final state = _stateOf(item) ?? const <String, dynamic>{};
-    final duration = int.tryParse('${state['duration'] ?? 0}') ?? 0;
     final offset = int.tryParse('${state['timeOffset'] ?? 0}') ?? 0;
-    if (offset <= 0) return false;
-    // Only judge "at the credits" when a duration is actually known.
-    if (duration > 0 && offset >= duration * _finishedFraction) return false;
-    // No lastWatched means the row exists because something was added to the
-    // library, not because it was played. Stremio's own clients don't list
-    // those, so neither do we.
-    final stamp = _stremioLastWatched(item);
-    if (stamp.isEmpty) return false;
-    if (maxAge == null) return true;
-    final lastWatched = DateTime.tryParse(stamp);
-    // An unreadable stamp means "played, age unknown" -- keep it rather than
-    // hide a row on a datastore format change.
-    if (lastWatched == null) return true;
-    final reference = now ?? DateTime.now();
-    return reference.difference(lastWatched.toLocal()) <= maxAge;
+    return offset > 0;
   }
 
-  /// True when a series row is parked on an episode the account already
-  /// records as watched. Stremio's own clients advance past it, which is why
-  /// these rows show up in Plezy's Continue Watching but nowhere else.
-  static bool isParkedOnWatchedEpisode(Map<String, dynamic> item, List<String> videoIds) {
-    if (videoIds.isEmpty) return false;
-    final state = _stateOf(item) ?? const <String, dynamic>{};
-    final videoId = '${state['video_id'] ?? ''}';
-    if (videoId.isEmpty) return false;
-    return decodeWatchedBitfield(state['watched'], videoIds).contains(videoId);
-  }
-
-  /// How many rows Continue Watching keeps. Stremio's own clients surface it
-  /// as a Board row of the most recent handful; without the cap the tail of
-  /// every long-abandoned show lands here and nowhere else.
-  static const int continueWatchingLimit = 12;
-
-  /// Newest-watched first, capped to [continueWatchingLimit]. Pure so the
-  /// ordering and the cap are unit-testable without a network.
-  static List<Map<String, dynamic>> sortContinueWatching(List<Map<String, dynamic>> items) {
-    final sorted = [...items]..sort((a, b) => _stremioLastWatched(b).compareTo(_stremioLastWatched(a)));
-    return sorted.length > continueWatchingLimit ? sorted.sublist(0, continueWatchingLimit) : sorted;
-  }
+  /// Newest-watched first, which is the order the clients use. No cap: the web
+  /// list is not capped either.
+  static List<Map<String, dynamic>> sortContinueWatching(List<Map<String, dynamic>> items) =>
+      [...items]..sort((a, b) => _stremioLastWatched(b).compareTo(_stremioLastWatched(a)));
 
   /// The user's age cut for Continue Watching; null means "any time".
   static Future<Duration?> continueWatchingMaxAge() async {
@@ -641,25 +598,21 @@ class StremioDebridClient extends MediaServerClient {
       final settings = await SettingsService.getInstance();
       return settings.read(SettingsService.continueWatchingWindow).maxAge;
     } catch (_) {
-      return const Duration(days: 90);
+      // Settings unavailable: no age cut, i.e. the clients' behaviour.
+      return null;
     }
   }
 
-  /// Continue Watching membership: position-based, then the series-specific
-  /// "parked on a watched episode" check (needs the show's episode list).
+  /// Continue Watching membership: the clients' rule, plus the user's optional
+  /// age cut (Settings -> Stremio -> Continue Watching). The default window is
+  /// "any time", so out of the box the list matches the clients exactly.
   Future<bool> _isContinueWatching(Map<String, dynamic> item) async {
+    if (!isInContinueWatching(item)) return false;
     final maxAge = await continueWatchingMaxAge();
-    if (!hasUnfinishedPosition(item, maxAge: maxAge)) return false;
-    if ('${item['type']}' != 'series') return true;
-    try {
-      final videoIds = await _accountApi.seriesVideoIds('${item['_id']}');
-      return !isParkedOnWatchedEpisode(item, videoIds);
-    } catch (e) {
-      // Cinemeta unreachable: keep the row rather than hide a genuinely
-      // in-progress show on a network blip.
-      appLogger.w('Stremio: episode list unavailable for ${item['_id']}', error: e);
-      return true;
-    }
+    if (maxAge == null) return true;
+    final lastWatched = DateTime.tryParse(_stremioLastWatched(item));
+    if (lastWatched == null) return true;
+    return DateTime.now().difference(lastWatched.toLocal()) <= maxAge;
   }
 
   /// ISO-8601 `lastWatched` timestamp; empty when absent (sort key only).
