@@ -372,17 +372,11 @@ class StremioDebridClient extends MediaServerClient {
     final catalogs = await _loadCatalogs();
     final showAccountLibraries = await _stremioAccountConnected();
     return [
-      // Account-backed pseudo-libraries: same server id as the catalogs so
-      // they group under the Stremio section of the library menu.
-      if (showAccountLibraries) ...[
-        MediaLibrary(
-          id: stremioLibraryId,
-          backend: MediaBackend.debrid,
-          title: 'Stremio Library',
-          kind: MediaKind.movie,
-          serverId: serverId.toString(),
-          serverName: 'Stremio',
-        ),
+      // Account pseudo-library. The menu shows exactly one Stremio account
+      // row -- Continue Watching. The old "Stremio Library" (every datastore
+      // row) is no longer advertised: it duplicated the Cinemeta catalogs
+      // with content that isn't in the Stremio clients' own library view.
+      if (showAccountLibraries)
         MediaLibrary(
           id: stremioContinueId,
           backend: MediaBackend.debrid,
@@ -391,7 +385,6 @@ class StremioDebridClient extends MediaServerClient {
           serverId: serverId.toString(),
           serverName: 'Stremio',
         ),
-      ],
       for (final catalog in catalogs)
         MediaLibrary(
           id: '${catalog.type}|${catalog.id}',
@@ -560,7 +553,11 @@ class StremioDebridClient extends MediaServerClient {
 
     var items = (await _accountItems(authKey)).where((i) => i['removed'] != true).toList();
     if (libraryId == stremioContinueId) {
-      items = items.where(_hasUnfinishedProgress).toList();
+      final keep = <Map<String, dynamic>>[];
+      for (final item in items) {
+        if (await _isContinueWatching(item)) keep.add(item);
+      }
+      items = keep;
       items.sort((a, b) => _stremioLastWatched(b).compareTo(_stremioLastWatched(a)));
     } else {
       items.sort((a, b) => '${b['_mtime'] ?? ''}'.compareTo('${a['_mtime'] ?? ''}'));
@@ -578,13 +575,53 @@ class StremioDebridClient extends MediaServerClient {
     return LibraryPage(items: mapped.sublist(start, end), totalCount: total, offset: start);
   }
 
-  /// True when the datastore state carries a started-but-unfinished position.
-  static bool _hasUnfinishedProgress(Map<String, dynamic> item) {
-    final state = item['state'];
-    final map = state is Map<String, dynamic> ? state : const <String, dynamic>{};
-    final duration = int.tryParse('${map['duration'] ?? 0}') ?? 0;
-    final offset = int.tryParse('${map['timeOffset'] ?? 0}') ?? 0;
-    return duration > 0 && offset > 0 && offset < duration * 0.97;
+  /// Fraction of the runtime at which a position is treated as "at the
+  /// credits" and therefore finished. Matches what the account datastore
+  /// carries for a played-out item.
+  static const double _finishedFraction = 0.97;
+
+  /// True when the datastore state carries a started-but-unfinished position:
+  /// a real duration, a real offset, not already at the credits, and a
+  /// lastWatched stamp proving it was actually played.
+  static bool hasUnfinishedPosition(Map<String, dynamic> item) {
+    final type = '${item['type']}';
+    if (type != 'movie' && type != 'series') return false;
+    final state = _stateOf(item) ?? const <String, dynamic>{};
+    final duration = int.tryParse('${state['duration'] ?? 0}') ?? 0;
+    final offset = int.tryParse('${state['timeOffset'] ?? 0}') ?? 0;
+    if (duration <= 0 || offset <= 0) return false;
+    if (offset >= duration * _finishedFraction) return false;
+    // No lastWatched means the row exists because something was added to the
+    // library, not because it was played. Stremio's own clients don't list
+    // those, so neither do we.
+    return _stremioLastWatched(item).isNotEmpty;
+  }
+
+  /// True when a series row is parked on an episode the account already
+  /// records as watched. Stremio's own clients advance past it, which is why
+  /// these rows show up in Plezy's Continue Watching but nowhere else.
+  static bool isParkedOnWatchedEpisode(Map<String, dynamic> item, List<String> videoIds) {
+    if (videoIds.isEmpty) return false;
+    final state = _stateOf(item) ?? const <String, dynamic>{};
+    final videoId = '${state['video_id'] ?? ''}';
+    if (videoId.isEmpty) return false;
+    return decodeWatchedBitfield(state['watched'], videoIds).contains(videoId);
+  }
+
+  /// Continue Watching membership: position-based, then the series-specific
+  /// "parked on a watched episode" check (needs the show's episode list).
+  Future<bool> _isContinueWatching(Map<String, dynamic> item) async {
+    if (!hasUnfinishedPosition(item)) return false;
+    if ('${item['type']}' != 'series') return true;
+    try {
+      final videoIds = await _accountApi.seriesVideoIds('${item['_id']}');
+      return !isParkedOnWatchedEpisode(item, videoIds);
+    } catch (e) {
+      // Cinemeta unreachable: keep the row rather than hide a genuinely
+      // in-progress show on a network blip.
+      appLogger.w('Stremio: episode list unavailable for ${item['_id']}', error: e);
+      return true;
+    }
   }
 
   /// ISO-8601 `lastWatched` timestamp; empty when absent (sort key only).

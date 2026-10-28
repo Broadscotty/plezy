@@ -265,6 +265,9 @@ class StremioApiClient {
       if (markWatched) {
         final times = int.tryParse('${state['timesWatched'] ?? 0}') ?? 0;
         state['timesWatched'] = times > 0 ? times : 1;
+        // Park the position at the end as well: a row that says "watched" but
+        // keeps a mid-roll offset is what the Stremio clients re-open at.
+        state['timeOffset'] = durationMs;
       }
     } else if (season != null && episode != null) {
       String videoId = '$imdb:$season:$episode';
@@ -286,6 +289,9 @@ class StremioApiClient {
       if (markWatched && videoIds.isNotEmpty) {
         final watched = decodeWatchedBitfield(state['watched'], videoIds)..add(videoId);
         state['watched'] = encodeWatchedBitfield(watched, videoIds);
+        // Same reasoning as the movie branch: watched rows carry the offset at
+        // the end, so no client re-opens a finished episode mid-roll.
+        state['timeOffset'] = durationMs;
       }
     }
 

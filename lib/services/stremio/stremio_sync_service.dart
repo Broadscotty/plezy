@@ -37,6 +37,10 @@ class StremioSyncService {
   _StremioTarget? _target;
   int _positionMs = 0;
   int? _durationMs;
+  /// True once the player has reported a real position for this session.
+  /// Until then the only position available is the item's stored one, which
+  /// must never be pushed (it would finish an item on open).
+  bool _positionFromPlayer = false;
   DateTime? _lastPushAt;
   bool _pushing = false;
 
@@ -90,6 +94,7 @@ class StremioSyncService {
     _target = null;
     _positionMs = 0;
     _durationMs = null;
+    _positionFromPlayer = false;
     _lastPushAt = null;
   }
 
@@ -188,17 +193,21 @@ class StremioSyncService {
     _target = target;
     _positionMs = metadata.viewOffsetMs ?? 0;
     _durationMs = metadata.durationMs;
+    // The seed position above belongs to the item's stored state, not to what
+    // the player is about to do: restarting a finished episode seeds ~100%,
+    // and pushing that marked the episode watched on Stremio, whose clients
+    // then jumped to the next episode. Only the player may report a position.
+    _positionFromPlayer = false;
     _lastPushAt = null;
     _lastSkipReason = null;
     _lastTargetLabel = target.isEpisode
         ? '${target.title} S${target.season}E${target.episode}'
         : target.title;
-    // Seed Continue Watching right away (throttled pushes keep it fresh).
-    unawaited(_push());
   }
 
   void updatePosition(Duration position) {
     if (_target == null) return;
+    _positionFromPlayer = true;
     _positionMs = position.inMilliseconds;
     final last = _lastPushAt;
     if (last != null && DateTime.now().difference(last) < _pushThrottle) return;
@@ -233,6 +242,9 @@ class StremioSyncService {
     if (_pushing) return;
     final target = _target;
     if (target == null) return;
+    // Nothing reported by the player yet -- pushing the stored offset here is
+    // what marked restarting episodes watched.
+    if (!_positionFromPlayer) return;
 
     final now = DateTime.now();
     final lastPushAt = _lastPushAt;
@@ -254,7 +266,9 @@ class StremioSyncService {
         return;
       }
       final positionMs = _positionMs.clamp(0, durationMs).toInt();
-      final markWatched = positionMs / durationMs >= _watchedThreshold;
+      // A watched mark may only come from playback the player actually
+      // reported, never from a seeded position.
+      final markWatched = _positionFromPlayer && positionMs / durationMs >= _watchedThreshold;
       final iso = now.toUtc().toIso8601String();
       await (_api ??= StremioApiClient()).pushProgress(
         authKey: authKey,
