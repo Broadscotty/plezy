@@ -714,6 +714,7 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
 
   /// Last time server health probes ran from a resume event (cooldown for desktop)
   DateTime _lastResumeProbe = DateTime(0);
+  DateTime _lastDownloadReconcile = DateTime(0);
 
   /// Periodic RSS watchdog timer (desktop + Android).
   Timer? _memoryCheckTimer;
@@ -938,6 +939,26 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
     }
   }
 
+  /// Downloads can stop advancing while the app is in the background: the
+  /// native holding queue keeps its pending tasks in memory, so a task can be
+  /// dropped without any status update, leaving the item behind it unstarted.
+  /// Reconciling on every foreground return is what clears that without a
+  /// force-quit. Throttled because desktop fires `resumed` on every focus.
+  Future<void> _reconcileDownloadQueueOnResume() async {
+    final now = DateTime.now();
+    if (now.difference(_lastDownloadReconcile) < const Duration(seconds: 15)) return;
+    _lastDownloadReconcile = now;
+    try {
+      if (!mounted) return;
+      final downloadProvider = context.read<DownloadProvider>();
+      await downloadProvider.ensureInitialized();
+      if (!mounted) return;
+      await downloadProvider.reconcileStalledDownloads();
+    } catch (e) {
+      appLogger.w('Download queue reconcile on resume failed', error: e);
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
@@ -945,6 +966,7 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
         // App came back to foreground - trigger sync check
         _offlineWatchSyncService.onAppResumed();
         TraktSyncService.instance.flushQueue();
+        unawaited(_reconcileDownloadQueueOnResume());
         // Re-probe servers — mobile OS may have dropped TCP connections during doze/sleep.
         // On desktop, resumed fires on every window focus (alt-tab), so apply a cooldown
         // to avoid piling up network probes from rapid alt-tabbing.

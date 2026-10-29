@@ -150,6 +150,12 @@ class DownloadManagerService {
 
   // Prevents concurrent _processQueue calls
   bool _isProcessingQueue = false;
+
+  // Set when something asks for a queue pass while one is already running.
+  // Dropping that request strands every item behind it: no other trigger
+  // exists until the app restarts.
+  bool _queueAdvanceRequested = false;
+  bool _isReconcilingStalledDownloads = false;
   bool _isRepairingArtwork = false;
   bool _disposed = false;
   bool _queueBlockedByStorageFailure = false;
@@ -1191,19 +1197,109 @@ class DownloadManagerService {
     unawaited(repairPendingSupplementaryDownloads());
     unawaited(repairMissingArtworkForDownloads());
 
-    unawaited(
-      _database
-          .getNextQueueItem()
-          .then((item) {
-            if (item != null) {
-              appLogger.i('Resuming queued downloads after app restart');
-              _processQueue(client);
-            }
-          })
-          .catchError((e, st) {
-            appLogger.e('Failed to resume queued downloads', error: e, stackTrace: st);
-          }),
-    );
+    // Reconcile before resuming: a row stranded at `downloading` by a native
+    // task that no longer exists is invisible to the queue query below, and
+    // everything queued behind it waits until the app restarts.
+    unawaited(() async {
+      try {
+        await reconcileStalledDownloads();
+        final item = await _database.getNextQueueItem();
+        if (item != null) {
+          appLogger.i('Resuming queued downloads');
+          await _processQueue(client);
+        }
+      } catch (e, st) {
+        appLogger.e('Failed to resume queued downloads', error: e, stackTrace: st);
+      }
+    }());
+  }
+
+  /// Reconcile durable queue rows against the native tasks that actually exist.
+  ///
+  /// Rows are reconciled once at startup. Nothing does it while the app runs,
+  /// so a download whose native task disappears mid-session — the native
+  /// holding queue keeps its tasks in memory, and its slot bookkeeping is known
+  /// to drop tasks on cancels and WorkManager restarts — stays `downloading`
+  /// forever and every item queued behind it never starts.
+  ///
+  /// Returns the number of rows put back in the queue.
+  Future<int> reconcileStalledDownloads({List<Task>? nativeTasks}) async {
+    if (_disposed) return 0;
+    if (_skipDownloadsUnsupported('stalled download reconciliation')) return 0;
+    if (_isOffline) return 0;
+    if (_isReconcilingStalledDownloads) return 0;
+    _isReconcilingStalledDownloads = true;
+    var requeued = 0;
+    try {
+      final List<Task> tasks;
+      if (nativeTasks != null) {
+        tasks = nativeTasks;
+      } else {
+        await (_fileDownloaderInitializerOverride?.call() ?? _initializeFileDownloader());
+        try {
+          tasks = await FileDownloader().allTasks(group: _downloadGroup);
+        } catch (e) {
+          appLogger.w('Stalled download reconciliation skipped: native tasks unavailable', error: e);
+          return 0;
+        }
+      }
+
+      final ownedKeys = <String>{};
+      for (final task in tasks) {
+        final globalKey = task.metaData;
+        if (globalKey.isNotEmpty) ownedKeys.add(globalKey);
+      }
+
+      final rows = await _database.select(_database.downloadedMedia).get();
+      for (final row in rows) {
+        if (_disposed) break;
+        if (row.status != DownloadStatus.downloading.index) continue;
+        if (ownedKeys.contains(row.globalKey)) continue;
+        // A callback is in flight for these — leave them alone.
+        if (_completingKeys.contains(row.globalKey) ||
+            _pausingKeys.contains(row.globalKey) ||
+            _cancellingKeys.contains(row.globalKey)) {
+          continue;
+        }
+
+        if (row.videoFilePath != null) {
+          // The file landed but the completion callback never ran. Completing
+          // it is what startup recovery does; re-downloading would too.
+          appLogger.i('Reconciled stalled download ${row.globalKey}: video present, completing');
+          await _database.updateBgTaskId(row.globalKey, null);
+          await _transitionStatus(row.globalKey, DownloadStatus.completed);
+          continue;
+        }
+
+        appLogger.i('Re-queuing stalled download ${row.globalKey}: no native task owns it');
+        await _database.updateBgTaskId(row.globalKey, null);
+        await _database.updateDownloadProgress(row.globalKey, 0, 0, 0);
+        await _transitionStatus(row.globalKey, DownloadStatus.queued);
+        await _database.addToQueue(mediaGlobalKey: row.globalKey);
+        requeued++;
+      }
+
+      if (requeued > 0) {
+        final client = _fallbackClient ?? await _clientForNextQueuedItem();
+        if (client != null) unawaited(_processQueue(client));
+      }
+    } catch (e, st) {
+      appLogger.e('Stalled download reconciliation failed', error: e, stackTrace: st);
+    } finally {
+      _isReconcilingStalledDownloads = false;
+    }
+    return requeued;
+  }
+
+  Future<MediaServerClient?> _clientForNextQueuedItem() async {
+    try {
+      final item = await _database.getNextQueueItem();
+      if (item == null) return null;
+      return await _getClientForDownloadKey(item.mediaGlobalKey);
+    } catch (e) {
+      appLogger.w('Could not resolve a client for the download queue', error: e);
+      return null;
+    }
   }
 
   /// Best-effort repair for downloads that completed while supplementary
@@ -1566,38 +1662,54 @@ class DownloadManagerService {
       await queueProcessorOverride(client);
       return;
     }
-    if (_isProcessingQueue) return;
+    if (_isProcessingQueue) {
+      // A completion, cancel or retry can land while the loop is still
+      // enqueuing. Record it and let the running pass come round again.
+      _queueAdvanceRequested = true;
+      return;
+    }
     _isProcessingQueue = true;
     _fallbackClient = client;
 
     try {
-      await (_fileDownloaderInitializerOverride?.call() ?? _initializeFileDownloader());
+      do {
+        _queueAdvanceRequested = false;
+        await (_fileDownloaderInitializerOverride?.call() ?? _initializeFileDownloader());
 
-      while (!_queueBlockedByStorageFailure) {
-        if (_consecutiveQueueFailures >= _maxConsecutiveFailures) {
-          appLogger.w('Circuit breaker: $_consecutiveQueueFailures consecutive failures, pausing queue');
-          _scheduleCircuitBreakerReset();
-          break;
-        }
+        // Rows handled during this pass. Keeps the loop bounded even when an
+        // item is skipped or stays queued, and stops it re-reading the same row.
+        final handledKeys = <String>{};
 
-        final nextItem = await _database.getNextQueueItem();
-        if (nextItem == null) break;
+        while (!_queueBlockedByStorageFailure) {
+          if (_consecutiveQueueFailures >= _maxConsecutiveFailures) {
+            appLogger.w('Circuit breaker: $_consecutiveQueueFailures consecutive failures, pausing queue');
+            _scheduleCircuitBreakerReset();
+            break;
+          }
 
-        // Resolve the correct client for the item's server/scope — skip if unavailable.
-        final itemClient = await _getClientForDownloadKey(nextItem.mediaGlobalKey);
-        if (itemClient == null) {
-          appLogger.d('Skipping queued download ${nextItem.mediaGlobalKey}: server offline');
-          break;
+          final nextItem = await _database.getNextQueueItem(excludeGlobalKeys: handledKeys);
+          if (nextItem == null) break;
+          handledKeys.add(nextItem.mediaGlobalKey);
+
+          // Resolve the correct client for the item's server/scope — skip if unavailable.
+          final itemClient = await _getClientForDownloadKey(nextItem.mediaGlobalKey);
+          if (itemClient == null) {
+            // One unreachable server must not hold back the rest: leave the row
+            // queued and move on to the next item in this pass.
+            appLogger.d('Skipping queued download ${nextItem.mediaGlobalKey}: server offline');
+            continue;
+          }
+          final enqueued = await _prepareAndEnqueueDownload(nextItem.mediaGlobalKey, itemClient, nextItem);
+          if (enqueued) {
+            _consecutiveQueueFailures = 0;
+          } else {
+            _consecutiveQueueFailures++;
+          }
         }
-        final enqueued = await _prepareAndEnqueueDownload(nextItem.mediaGlobalKey, itemClient, nextItem);
-        if (enqueued) {
-          _consecutiveQueueFailures = 0;
-        } else {
-          _consecutiveQueueFailures++;
-        }
-      }
+      } while (_queueAdvanceRequested && !_queueBlockedByStorageFailure);
     } finally {
       _isProcessingQueue = false;
+      _queueAdvanceRequested = false;
     }
   }
 
@@ -2140,8 +2252,10 @@ class DownloadManagerService {
   /// than for the rest of the app session.
   void _scheduleCircuitBreakerReset() {
     if (_disposed || _circuitBreakerResetTimer != null) return;
-    appLogger.i('Download queue paused after $_consecutiveQueueFailures failures; retrying in '
-        '${_circuitBreakerResetDelay.inSeconds}s');
+    appLogger.i(
+      'Download queue paused after $_consecutiveQueueFailures failures; retrying in '
+      '${_circuitBreakerResetDelay.inSeconds}s',
+    );
     _circuitBreakerResetTimer = Timer(_circuitBreakerResetDelay, () {
       _circuitBreakerResetTimer = null;
       if (_disposed) return;
@@ -2438,6 +2552,12 @@ class DownloadManagerService {
       await _database.updateVideoFilePath(globalKey, storedPath);
       appLogger.d('Video download completed for $globalKey');
 
+      // The video is safe: advance the queue now. Supplementary work below is
+      // network-bound and best-effort, and waiting for it before releasing the
+      // next item is how a slow or wedged fetch looked like "the next download
+      // never starts" while the completion notice was already on screen.
+      unawaited(_advanceQueueAfterCompletion(globalKey));
+
       // ── Phase 2 (best-effort): supplementary downloads ──
       final persistedQueueItem = await (_database.select(
         _database.downloadQueue,
@@ -2518,6 +2638,17 @@ class DownloadManagerService {
       // Always advance the queue, even after errors
       final nextClient = await _getClientForDownloadKey(globalKey);
       if (nextClient != null) unawaited(_processQueue(nextClient));
+    }
+  }
+
+  Future<void> _advanceQueueAfterCompletion(String completedGlobalKey) async {
+    if (_disposed) return;
+    try {
+      final client = await _getClientForDownloadKey(completedGlobalKey) ?? _fallbackClient;
+      if (client == null) return;
+      await _processQueue(client);
+    } catch (e) {
+      appLogger.w('Failed to advance the download queue after completion', error: e);
     }
   }
 
