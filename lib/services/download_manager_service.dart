@@ -1279,6 +1279,10 @@ class DownloadManagerService {
         requeued++;
       }
 
+      appLogger.d(
+        'Download reconciliation: ${rows.length} row(s), ${tasks.length} native task(s), $requeued re-queued',
+      );
+
       if (requeued > 0) {
         final client = _fallbackClient ?? await _clientForNextQueuedItem();
         if (client != null) unawaited(_processQueue(client));
