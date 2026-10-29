@@ -949,11 +949,10 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
     if (now.difference(_lastDownloadReconcile) < const Duration(seconds: 15)) return;
     _lastDownloadReconcile = now;
     try {
-      if (!mounted) return;
-      final downloadProvider = context.read<DownloadProvider>();
-      await downloadProvider.ensureInitialized();
-      if (!mounted) return;
-      await downloadProvider.reconcileStalledDownloads();
+      // Reconcile through the manager the app already owns: DownloadProvider is
+      // created inside this widget's build, so it is not reachable from here.
+      // Status changes reach the UI on the manager's progress stream.
+      await _downloadManager.reconcileStalledDownloads();
     } catch (e) {
       appLogger.w('Download queue reconcile on resume failed', error: e);
     }

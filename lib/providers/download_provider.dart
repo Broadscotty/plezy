@@ -1710,12 +1710,6 @@ class DownloadProvider extends ChangeNotifier with DisposableChangeNotifierMixin
     _downloadManager.resumeQueuedDownloads(client);
   }
 
-  /// Reconcile queue rows against the native tasks that actually exist.
-  ///
-  /// Cheap and idempotent: safe to run whenever the app returns to the
-  /// foreground. Returns the number of stranded rows put back in the queue.
-  Future<int> reconcileStalledDownloads() => _downloadManager.reconcileStalledDownloads();
-
   /// Backend-aware metadata lookup for offline UI. Routes through
   /// [DownloadManagerService] which dispatches to [PlexApiCache] or
   /// [JellyfinApiCache] based on the connection's `kind`.
